@@ -1,2 +1,2 @@
 # webserv
-An HTTP web server
+A HTTP web server
