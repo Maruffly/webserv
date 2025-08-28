@@ -1,14 +1,55 @@
 #pragma once
 
-#include <vector>
+#define GREEN = \033[32m
+#define RED = \033[31m
+#define BLINK = \033[5m
+#define RESET = \033[0m
+
+// system
+#include <iostream>
 #include <string>
-#include <map>
+#include <cstdlib>
+#include <cstring>
+#include <cerrno>
+#include <stdexcept>
+#include <sstream>
 
+// sockets - network programming
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <fcntl.h>
 
-class WebServer 
+// const
+#define SUCCESS 0
+#define FAILURE -1
+#define DEFAULT_PORT 8080
+#define DEFAULT_HOST "127.0.0.1"
+#define BACKLOG 10 // connections waiting in queue
+#define BUFFER_SIZE 1024
+
+// debug
+template <typename T>
+std::string toString(const T &value) 
 {
-	private:
-	public:
-			WebServer();
-			~WebServer();
-};
+    std::ostringstream oss;
+    oss << value;
+    return oss.str();
+}
+
+inline void LOG(const std::string& msg) 
+{
+    std::cout << "📝 " << msg << std::endl;
+}
+
+inline void ERROR(const std::string& msg) 
+{
+    std::cerr << "❌ ERROR: " << msg << " (" << strerror(errno) << ")" << std::endl;
+}
+
+inline void INFO(const std::string& msg) 
+{
+    std::cout << "ℹ️  " << msg << std::endl;
+}
