@@ -19,3 +19,6 @@ int main() {
     
     return 0;
 }
+
+
+// ./webserv -> browser : http://localhost:8080
