@@ -91,7 +91,6 @@ void Server::run()
     
     while (true) 
 	{
-        // Accepte une nouvelle connexion
         int clientSocket = accept(_serverSocket, (struct sockaddr*)&clientAddress, &clientAddrLen);
         if (clientSocket < 0) 
 		{
@@ -99,7 +98,7 @@ void Server::run()
             continue; // Continue même en cas d'erreur
         }
         
-        // Affiche les informations du client
+        // print client info
         char clientIP[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &clientAddress.sin_addr, clientIP, INET_ADDRSTRLEN);
         LOG("New connection accepted from " + std::string(clientIP) + ":" + toString(ntohs(clientAddress.sin_port)));
