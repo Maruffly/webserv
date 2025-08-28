@@ -5,7 +5,8 @@
 #include <map>
 
 
-class WebServer {
+class WebServer 
+{
 	private:
 	public:
 			WebServer();
