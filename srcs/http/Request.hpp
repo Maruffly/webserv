@@ -9,6 +9,8 @@ class	Request
 		std::string	_method;
 		std::string	_uri;			// index.html..
 		std::string	_version;		// HTTP/1.1..
+		std::map<std::string, std::string>	_headers;
+		std::string	_body;
 		bool		_isComplete;	// if request fully received
 
 
@@ -24,11 +26,13 @@ class	Request
 		std::string	getMethod() const;
 		std::string	getUri() const;
 		std::string	getVersion() const;
+		std::string getHeader(const std::string& name) const;
+		std::string	getBody() const;
 		bool		isComplete() const;
 
 		// debug
 		void		print() const;
 
 		// errors
-		void	parseError();
+		void		parseError();
 };

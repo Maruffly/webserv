@@ -6,6 +6,7 @@
 #define RESET = \033[0m
 
 // system
+#include <map>
 #include <iostream>
 #include <string>
 #include <cstdlib>
@@ -13,6 +14,7 @@
 #include <cerrno>
 #include <stdexcept>
 #include <sstream>
+#include <algorithm>
 
 // sockets - network programming
 #include <sys/socket.h>

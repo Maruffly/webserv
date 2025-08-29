@@ -82,16 +82,26 @@ void Server::startListening()
 }
 
 
-void Server::run() {
+// Getters
+int Server::getSocket() const { return _serverSocket; }
+int Server::getPort() const { return _port; }
+std::string Server::getHost() const { return _host; }
+
+
+
+void Server::run() 
+{
     struct sockaddr_in clientAddress;
     socklen_t clientAddrLen = sizeof(clientAddress);
     char buffer[BUFFER_SIZE];
     
     INFO("Waiting for connections...");
     
-    while (true) {
+    while (true) 
+	{
         int clientSocket = accept(_serverSocket, (struct sockaddr*)&clientAddress, &clientAddrLen);
-        if (clientSocket < 0) {
+        if (clientSocket < 0) 
+		{
             ERROR("Accept failed");
             continue;
         }
@@ -102,11 +112,12 @@ void Server::run() {
         
         LOG("New connection accepted from " + std::string(clientIP) + ":" + toString(clientPort));
         
-        // reading request
+        // Lecture de la requête
         std::string requestData;
         ssize_t bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
         
-        if (bytesRead > 0) {
+        if (bytesRead > 0) 
+		{
             buffer[bytesRead] = '\0';
             requestData = buffer;
             
@@ -115,12 +126,35 @@ void Server::run() {
             std::cout << requestData << std::endl;
             std::cout << "------------------------" << std::endl;
             
+            // Parse la requête
             Request request(requestData);
-            if (request.isComplete()) {
-                request.print();
-            }
+            if (request.isComplete()) 
+			{
+                request.print(); // Affiche le parsing complet
+                
+                // === AFFICHAGE DES INFOS PARSÉES ===
+                std::cout << "🔍 Parsed information:" << std::endl;
+                std::cout << "Méthode: [" << request.getMethod() << "]" << std::endl;
+                std::cout << "Chemin: [" << request.getUri() << "]" << std::endl;
+                std::cout << "Version: [" << request.getVersion() << "]" << std::endl;
+                std::cout << "Host: [" << request.getHeader("host") << "]" << std::endl;
+                
+                // Affiche d'autres headers intéressants
+                std::string userAgent = request.getHeader("user-agent");
+                if (!userAgent.empty()) 
+                    std::cout << "User-Agent: [" << userAgent << "]" << std::endl;
+                
+                std::string contentType = request.getHeader("content-type");
+                if (!contentType.empty())
+                    std::cout << "Content-Type: [" << contentType << "]" << std::endl;
+                
+                std::cout << "------------------------" << std::endl;
+                
+            } 
+			else 
+                LOG("Incomplete request received");
             
-            // adding response
+            // === RÉPONSE HTTP ===
             std::string response = "HTTP/1.1 200 OK\r\n";
             response += "Content-Type: text/html\r\n";
             response += "Content-Length: 25\r\n";
@@ -131,19 +165,13 @@ void Server::run() {
             send(clientSocket, response.c_str(), response.length(), 0);
             LOG("Response sent to client");
             
-        } else if (bytesRead == 0) {
+        } 
+		else if (bytesRead == 0) 
             LOG("Client disconnected");
-        } else {
+		else 
             ERROR("recv failed");
-        }
         
         close(clientSocket);
         LOG("Connection closed");
     }
 }
-
-
-// Getters
-int Server::getSocket() const { return _serverSocket; }
-int Server::getPort() const { return _port; }
-std::string Server::getHost() const { return _host; }
