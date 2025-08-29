@@ -14,11 +14,13 @@
 #include <cerrno>
 #include <stdexcept>
 #include <sstream>
+#include <vector>
 #include <algorithm>
 
 // sockets - network programming
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/epoll.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -31,6 +33,7 @@
 #define DEFAULT_HOST "127.0.0.1"
 #define BACKLOG 10 // connections waiting in queue
 #define BUFFER_SIZE 1024
+#define MAX_EVENTS 10
 
 // debug
 template <typename T>
