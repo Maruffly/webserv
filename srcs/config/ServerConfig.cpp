@@ -42,10 +42,86 @@ void ServerConfig::setListen(const std::string& listenStr){
 	}
 }
 
-void ServerConfig::setClient(const size_t clientMax){
+void ServerConfig::setClientMax(const size_t clientMax){
 	_clientMax = clientMax;
 }
 
 void ServerConfig::setAutoindex(const bool autoindex){
 	_autoindex = autoindex;
+}
+
+void ServerConfig::setLocation(const std::vector<LocationConfig> locations){
+	_locations = locations;
+}
+
+const std::string& ServerConfig::getServerName(){
+	return _serverName;
+}
+
+const std::string& ServerConfig::getHost(){
+	return _host;
+}
+
+const int ServerConfig::getPort(){
+	return _port;
+}
+
+const std::string& ServerConfig::getRoot(){
+	return _root;
+}
+
+const std::string& ServerConfig::getIndex(){
+	return _index;
+}
+
+const std::vector<std::string>& ServerConfig::getListen(){
+	return _listen;
+}
+
+const size_t ServerConfig::getClientMax(){
+	return _clientMax;
+}
+
+const bool ServerConfig::getAutoindex(){
+	return _autoindex;
+}
+
+void ServerConfig::addLocation(const LocationConfig& location) {
+	_locations.push_back(location);
+}
+
+void ServerConfig::addErrorPage(int errorCode, const std::string& path) {
+	_errorPages[errorCode] = path;
+}
+
+const std::vector<LocationConfig>& ServerConfig::getLocations() const {
+	return _locations;
+}
+
+void ServerConfig::printConfig() const {
+	std::cout << "=== Server Configuration ===" << std::endl;
+	std::cout << "Server Name: " << _serverName << std::endl;
+	std::cout << "Host: " << _host << std::endl;
+	std::cout << "Port: " << _port << std::endl;
+	std::cout << "Root: " << _root << std::endl;
+	std::cout << "Index: " << _index << std::endl;
+	std::cout << "Autoindex: " << (_autoindex ? "on" : "off") << std::endl;
+	std::cout << "Client Max Body Size: " << _clientMax << std::endl;
+	std::cout << "Listen Directives: ";
+	for (size_t i = 0; i < _listen.size(); ++i) {
+		std::cout << _listen[i];
+		if (i < _listen.size() - 1) std::cout << ", ";
+	}
+	std::cout << std::endl;
+	std::cout << "============================" << std::endl;
+	for (size_t i = 0; i < _locations.size(); ++i) {
+		LocationConfig loc = _locations[i];
+		std::cout << "=== Location: " << loc.getPath() << " ===" << std::endl;
+		std::cout << "Root: " << loc.getRoot() << std::endl;
+		std::cout << "Index: " << loc.getIndex() << std::endl;
+		std::cout << "CGI Pass: " << loc.getCgiPass() << std::endl;
+		std::cout << "Client Max Body Size: " << loc.getClientMax() << std::endl;
+		std::cout << "Autoindex: " << (loc.getAutoindex() ? "on" : "off") << std::endl;
+		std::cout << "===========================" << std::endl;
+	}
 }
