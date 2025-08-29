@@ -6,7 +6,7 @@ class	Response
 {
 	private:
 		std::string	_response;
-
+		std::string	_body;
 	
 	public:
 		Response();

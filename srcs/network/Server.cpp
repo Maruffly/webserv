@@ -155,14 +155,13 @@ void Server::run()
                 LOG("Incomplete request received");
             
             // http response
-            std::string response = "HTTP/1.1 200 OK\r\n";
-            response += "Content-Type: text/html\r\n";
-            response += "Content-Length: 25\r\n";
-            response += "Connection: close\r\n";
-            response += "\r\n";
-            response += "<h1>Hello from webserv!</h1>";
+			Response	response;
+			response.setStatus(200, "OK");
+			response.setHeader("Content-Type", "text/html");
+			response.setHeader("Connection", "close");
+			response.setBody("<h1>Hello from webserv!</h1>");
             
-            send(clientSocket, response.c_str(), response.length(), 0);
+            send(clientSocket, response.getResponse().c_str(), response.getResponse().length(), 0);
             LOG("Response sent to client");
             
         } 

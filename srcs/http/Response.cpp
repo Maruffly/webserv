@@ -17,9 +17,12 @@ void	Response::setHeader(const std::string &name, const std::string &value)
 }
 
 
-void	Response::setBody(const std::string &body)
+void Response::setBody(const std::string& body) 
 {
-	_response += "\r\n" + body;
+    _body = body;
+    // dynamic content length
+    setHeader("Content-Length", toString(_body.length()));
+    _response += "\r\n" + _body;
 }
 
 
