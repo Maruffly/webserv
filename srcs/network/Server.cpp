@@ -112,7 +112,7 @@ void Server::run()
         
         LOG("New connection accepted from " + std::string(clientIP) + ":" + toString(clientPort));
         
-        // Lecture de la requête
+        // reading request
         std::string requestData;
         ssize_t bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
         
@@ -126,20 +126,20 @@ void Server::run()
             std::cout << requestData << std::endl;
             std::cout << "------------------------" << std::endl;
             
-            // Parse la requête
+            // parse request
             Request request(requestData);
             if (request.isComplete()) 
 			{
-                request.print(); // Affiche le parsing complet
+                request.print(); // print full parsing
                 
-                // === AFFICHAGE DES INFOS PARSÉES ===
+                // print parsed infos
                 std::cout << "🔍 Parsed information:" << std::endl;
                 std::cout << "Méthode: [" << request.getMethod() << "]" << std::endl;
                 std::cout << "Chemin: [" << request.getUri() << "]" << std::endl;
                 std::cout << "Version: [" << request.getVersion() << "]" << std::endl;
                 std::cout << "Host: [" << request.getHeader("host") << "]" << std::endl;
                 
-                // Affiche d'autres headers intéressants
+                // print headers
                 std::string userAgent = request.getHeader("user-agent");
                 if (!userAgent.empty()) 
                     std::cout << "User-Agent: [" << userAgent << "]" << std::endl;
@@ -154,7 +154,7 @@ void Server::run()
 			else 
                 LOG("Incomplete request received");
             
-            // === RÉPONSE HTTP ===
+            // http response
             std::string response = "HTTP/1.1 200 OK\r\n";
             response += "Content-Type: text/html\r\n";
             response += "Content-Length: 25\r\n";
