@@ -35,6 +35,7 @@
 #define BACKLOG 10 // connections waiting in queue
 #define BUFFER_SIZE 1024
 #define MAX_EVENTS 64
+#define MAX_REQUEST_SIZE 8192
 
 // debug
 template <typename T>

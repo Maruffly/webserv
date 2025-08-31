@@ -71,90 +71,71 @@ void	epollManager::handleNewConnection()
 }
 
 
-std::string getContentType(const std::string& uri) 
-{
-    size_t dotPos = uri.find_last_of('.');
-    if (dotPos == std::string::npos)
-        return "text/html";
-    
-    std::string extension = uri.substr(dotPos + 1);
-    
-    if (extension == "html" || extension == "htm") return "text/html";
-    if (extension == "css") return "text/css";
-    if (extension == "js") return "application/javascript";
-    if (extension == "jpg" || extension == "jpeg") return "image/jpeg";
-    if (extension == "png") return "image/png";
-    if (extension == "gif") return "image/gif";
-    if (extension == "json") return "application/json";
-    
-    return "text/plain";
-}
 
-
-std::string getCurrentDate() {
-    time_t now = time(0);
-    struct tm tm = *gmtime(&now);
-    char buf[100];
-    strftime(buf, sizeof(buf), "%a, %d %b %Y %H:%M:%S GMT", &tm);
-    return std::string(buf);
-}
-
-
-std::string createHtmlResponse(const std::string& title, const std::string& content) {
-    return "<!DOCTYPE html><html><head><title>" + title + 
-           "</title><style>body{font-family: Arial, sans-serif; margin: 40px;}</style></head><body><h1>" + 
-           title + "</h1><p>" + content + "</p></body></html>";
-}
-
-
-Response PollManager::createResponseForRequest(const Request& request) 
-{
+Response epollManager::createResponseForRequest(const Request& request) {
     Response response;
     
+    // http version checking
     if (request.getVersion() != "HTTP/1.1" && request.getVersion() != "HTTP/1.0") 
-	{
+    {
         response.setStatus(505, "HTTP Version Not Supported");
-        response.setBody("<h1>505 HTTP Version Not Supported</h1>");
+        response.setBody(createHtmlResponse("505 HTTP Version Not Supported", 
+                                          "Unsupported HTTP version: " + request.getVersion()));
         response.setHeader("Content-Type", "text/html");
         return response;
     }
 
-    if (request.getMethod() != "GET" && request.getMethod() != "POST" && request.getMethod() != "DELETE") 
-	{
+    // methods checking
+    std::string method = request.getMethod();
+    if (method != "GET" && method != "POST" && method != "DELETE") 
+    {
         response.setStatus(405, "Method Not Allowed");
         response.setHeader("Allow", "GET, POST, DELETE");
-        response.setBody("<h1>405 Method Not Allowed</h1>");
+        response.setBody(createHtmlResponse("405 Method Not Allowed", 
+                                          "Method " + method + " is not allowed on this server"));
         response.setHeader("Content-Type", "text/html");
         return response;
     }
 
+    // Routing basé sur l'URI
     std::string uri = request.getUri();
+    std::string contentType = getContentType(uri);
     
     if (uri == "/" || uri == "/index.html") 
-	{
+    {
         response.setStatus(200, "OK");
-        response.setHeader("Content-Type", "text/html");
-        response.setBody("<html><head><title>Home</title></head><body><h1>Welcome to webserv!</h1><p>URI: " + uri + "</p></body></html>");
+        response.setHeader("Content-Type", contentType);
+        response.setBody(createHtmlResponse("Welcome to webserv", 
+                                          "Server is running correctly!<br>"
+                                          "URI: " + uri + "<br>"
+                                          "Method: " + method + "<br>"
+                                          "Version: " + request.getVersion()));
     }
     else if (uri == "/hello") 
-	{
+    {
         response.setStatus(200, "OK");
-        response.setHeader("Content-Type", "text/html");
-        response.setBody("<h1>Hello World!</h1><p>This is a dynamic page</p>");
+        response.setHeader("Content-Type", contentType);
+        response.setBody(createHtmlResponse("Hello Page", 
+                                          "Hello from webserv with epoll!<br>"
+                                          "This is a dynamic response."));
     }
     else if (uri == "/redirect") 
-	{
+    {
         response.setStatus(302, "Found");
         response.setHeader("Location", "/hello");
-        response.setBody("<h1>302 Redirect</h1>");
+        response.setBody(createHtmlResponse("302 Redirect", 
+                                          "Redirecting to /hello page"));
     }
     else 
-	{
+    {
         response.setStatus(404, "Not Found");
         response.setHeader("Content-Type", "text/html");
-        response.setBody("<html><head><title>404</title></head><body><h1>404 Not Found</h1><p>The requested URL " + uri + " was not found</p></body></html>");
+        response.setBody(createHtmlResponse("404 Not Found", 
+                                          "The requested URL " + uri + " was not found on this server.<br>"
+                                          "Please check the URL and try again."));
     }
 
+    // Headers common to all responses
     response.setHeader("Connection", "close");
     response.setHeader("Server", "webserv/1.0");
     response.setHeader("Date", getCurrentDate());
@@ -163,29 +144,74 @@ Response PollManager::createResponseForRequest(const Request& request)
 }
 
 
+void epollManager::sendErrorResponse(int clientFd, int code, const std::string& message) 
+{
+    Response response;
+    response.setStatus(code, message);
+    response.setHeader("Content-Type", "text/html");
+    response.setHeader("Connection", "close");
+    response.setHeader("Server", "webserv/1.0");
+    
+    std::string body = createHtmlResponse(toString(code) + " " + message, 
+                                        "Error: " + message + "<br>Please try another URL.");
+    response.setBody(body);
+    
+    std::string responseStr = response.getResponse();
+    if (send(clientFd, responseStr.c_str(), responseStr.length(), 0) == -1) {
+        ERROR("Failed to send error response to client " + toString(clientFd));
+    }
+}
 
-void PollManager::handleClientData(int clientFd) 
+
+
+void epollManager::handleClientData(int clientFd) 
 {
     char buffer[BUFFER_SIZE];
     ssize_t bytesRead;
 
     while ((bytesRead = recv(clientFd, buffer, BUFFER_SIZE - 1, 0)) > 0) 
-	{
+    {
         buffer[bytesRead] = '\0';
         _clientBuffers[clientFd] += buffer;
 
+        // Vérifier la taille du buffer pour éviter les overflow
+        if (_clientBuffers[clientFd].length() > MAX_REQUEST_SIZE) 
+        {
+            LOG("Request too large from client " + toString(clientFd));
+            sendErrorResponse(clientFd, 413, "Request Entity Too Large");
+            closeClient(clientFd);
+            return;
+        }
+
         if (_clientBuffers[clientFd].find("\r\n\r\n") != std::string::npos) 
-		{
+        {
             LOG("Complete request received from client " + toString(clientFd));
             
-            Request request(_clientBuffers[clientFd]);
-            if (request.isComplete()) 
-			{
-                request.print();
-                
-                Response response = createResponseForRequest(request);
-                std::string responseStr = response.getResponse();
-                send(clientFd, responseStr.c_str(), responseStr.length(), 0);
+            try {
+                Request request(_clientBuffers[clientFd]);
+                if (request.isComplete()) 
+                {
+                    request.print();
+                    
+                    Response response = createResponseForRequest(request);
+                    std::string responseStr = response.getResponse();
+                    
+                    // Gestion d'erreur sur l'envoi
+                    if (send(clientFd, responseStr.c_str(), responseStr.length(), 0) == -1) 
+                        ERROR("Failed to send response to client " + toString(clientFd));
+                    else 
+                        LOG("Response sent to client " + toString(clientFd));
+                } 
+                else 
+                {
+                    LOG("Incomplete request from client " + toString(clientFd));
+                    sendErrorResponse(clientFd, 400, "Bad Request");
+                }
+            } 
+            catch (const std::exception& e) 
+            {
+                ERROR("Request parsing failed: " + std::string(e.what()));
+                sendErrorResponse(clientFd, 400, "Bad Request");
             }
 
             _clientBuffers[clientFd].clear();
@@ -193,10 +219,20 @@ void PollManager::handleClientData(int clientFd)
             return;
         }
     }
+
+    if (bytesRead == 0) {
+        LOG("Client " + toString(clientFd) + " disconnected");
+        closeClient(clientFd);
+    } else if (bytesRead == -1) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            ERROR("recv failed for client " + toString(clientFd) + ": " + std::string(strerror(errno)));
+            closeClient(clientFd);
+        }
+    }
 }
 
 
-void PollManager::closeClient(int clientFd) 
+void epollManager::closeClient(int clientFd) 
 {
     epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, NULL);
     close(clientFd);
@@ -205,7 +241,7 @@ void PollManager::closeClient(int clientFd)
 }
 
 
-void PollManager::run() 
+void epollManager::run() 
 {
     struct epoll_event events[MAX_EVENTS];
     
