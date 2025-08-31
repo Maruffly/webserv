@@ -1,6 +1,4 @@
 #include "epollManager.hpp"
-#include "../http/Request.hpp"
-#include "../http/Response.hpp"
 
 
 epollManager::epollManager(int serverSocket) : _serverSocket(serverSocket), _epollFd(-1)
@@ -72,10 +70,11 @@ void	epollManager::handleNewConnection()
 
 
 
-Response epollManager::createResponseForRequest(const Request& request) {
+Response epollManager::createResponseForRequest(const Request& request) 
+{
     Response response;
     
-    // http version checking
+    // Validation de la version HTTP
     if (request.getVersion() != "HTTP/1.1" && request.getVersion() != "HTTP/1.0") 
     {
         response.setStatus(505, "HTTP Version Not Supported");
@@ -85,57 +84,73 @@ Response epollManager::createResponseForRequest(const Request& request) {
         return response;
     }
 
-    // methods checking
+    // Validation de la méthode HTTP (seulement GET pour les fichiers)
     std::string method = request.getMethod();
-    if (method != "GET" && method != "POST" && method != "DELETE") 
+    if (method != "GET") 
     {
         response.setStatus(405, "Method Not Allowed");
-        response.setHeader("Allow", "GET, POST, DELETE");
+        response.setHeader("Allow", "GET");
         response.setBody(createHtmlResponse("405 Method Not Allowed", 
-                                          "Method " + method + " is not allowed on this server"));
+                                          "Method " + method + " is not allowed for static files"));
         response.setHeader("Content-Type", "text/html");
         return response;
     }
 
-    // Routing basé sur l'URI
     std::string uri = request.getUri();
-    std::string contentType = getContentType(uri);
-    
-    if (uri == "/" || uri == "/index.html") 
+    std::string filePath = "./www" + uri; // Base directory
+
+    // Gestion de la racine : sert index.html
+    if (uri == "/")
+        filePath = "./www/index.html";
+
+    // Vérifie si le chemin est un dossier
+    struct stat pathStat;
+    if (stat(filePath.c_str(), &pathStat) == 0) 
     {
-        response.setStatus(200, "OK");
-        response.setHeader("Content-Type", contentType);
-        response.setBody(createHtmlResponse("Welcome to webserv", 
-                                          "Server is running correctly!<br>"
-                                          "URI: " + uri + "<br>"
-                                          "Method: " + method + "<br>"
-                                          "Version: " + request.getVersion()));
-    }
-    else if (uri == "/hello") 
-    {
-        response.setStatus(200, "OK");
-        response.setHeader("Content-Type", contentType);
-        response.setBody(createHtmlResponse("Hello Page", 
-                                          "Hello from webserv with epoll!<br>"
-                                          "This is a dynamic response."));
-    }
-    else if (uri == "/redirect") 
-    {
-        response.setStatus(302, "Found");
-        response.setHeader("Location", "/hello");
-        response.setBody(createHtmlResponse("302 Redirect", 
-                                          "Redirecting to /hello page"));
-    }
+        if (S_ISDIR(pathStat.st_mode)) 
+        {
+            // C'EST UN DOSSIER - essaie de servir index.html dans le dossier
+            std::string indexFile = filePath;
+            if (indexFile[indexFile.length() - 1] != '/') 
+                indexFile += "/";
+            indexFile += "index.html";
+            
+            if (response.setFile(indexFile))
+                response.setStatus(200, "OK");
+            else 
+            {
+                // Dossier sans index.html - interdit le listing
+                response.setStatus(403, "Forbidden");
+                response.setHeader("Content-Type", "text/html");
+                response.setBody(createHtmlResponse("403 Forbidden", 
+                                                  "Directory listing not allowed for: " + uri));
+            }
+        } 
+        else 
+        {
+            // C'EST UN FICHIER - essaie de le servir
+            if (response.setFile(filePath)) {
+                response.setStatus(200, "OK");
+            } else 
+            {
+                // Fichier inaccessible (permissions)
+                response.setStatus(403, "Forbidden");
+                response.setHeader("Content-Type", "text/html");
+                response.setBody(createHtmlResponse("403 Forbidden", 
+                                                  "Access denied to: " + uri));
+            }
+        }
+    } 
     else 
     {
+        // FICHIER/DOSSIER N'EXISTE PAS
         response.setStatus(404, "Not Found");
         response.setHeader("Content-Type", "text/html");
         response.setBody(createHtmlResponse("404 Not Found", 
-                                          "The requested URL " + uri + " was not found on this server.<br>"
-                                          "Please check the URL and try again."));
+                                          "The requested resource " + uri + " was not found"));
     }
 
-    // Headers common to all responses
+    // Headers communs à toutes les réponses
     response.setHeader("Connection", "close");
     response.setHeader("Server", "webserv/1.0");
     response.setHeader("Date", getCurrentDate());
