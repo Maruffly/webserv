@@ -34,7 +34,6 @@ class ServerConfig {
 			void setClientMax(const size_t clientMax);
 			void setAutoindex(const bool autoindex);
 			void addErrorPage(int errorCode, const std::string& path);
-			void setLocation(const std::vector<LocationConfig> locationConfig);
 			void addLocation(const LocationConfig& location);
 			const std::vector<LocationConfig>& getLocations() const;
 			const std::string& getServerName();
@@ -46,7 +45,6 @@ class ServerConfig {
 			const size_t getClientMax();
 			const bool getAutoindex();
 			const std::string& getLocation();
-
 			void printConfig() const;
 
 };

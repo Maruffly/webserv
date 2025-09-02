@@ -1,6 +1,7 @@
 #include "ParserUtils.hpp"
 #include <iostream>
 
+// Erase \t\n\r at the start or end of a str
 std::string ParserUtils::trim(const std::string& str) {
 	size_t start = str.find_first_not_of(" \t\n\r");
 	if (start == std::string::npos)
@@ -22,6 +23,7 @@ std::vector<std::string> ParserUtils::split(const std::string& str, char sep) {
 		return tokens;
 }
 
+//Extract a string between two string
 std::string ParserUtils::getInBetween(const std::string& str, const std::string& start, const std::string& end){
 
 	size_t startPos = str.find(start);
@@ -33,11 +35,13 @@ std::string ParserUtils::getInBetween(const std::string& str, const std::string&
 	return trim(str.substr(startPos + start.length(), endPos - startPos - start.length()));	
 }
 
+//Find a prefix match in a string
 bool ParserUtils::startsWith(const std::string& str, const std::string& prefix) {
 	return str.size() >= prefix.size() &&
 	str.compare(0, prefix.size(), prefix) == 0;
 }
 
+//Find a suffix match in a string
 bool ParserUtils::endsWith(const std::string& str, const std::string& suffix){
 	return str.size() >= suffix.size() &&
 	str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;

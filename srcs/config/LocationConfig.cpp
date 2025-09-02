@@ -55,47 +55,47 @@ void LocationConfig::addDeny(const std::string& ip) {
 	_IPdeny.push_back(ip);
 }
 
-const std::string& LocationConfig::getPath(){
+const std::string& LocationConfig::getPath()const{
 	return _path;
 }
 
-const std::string& LocationConfig::getRoot(){
+const std::string& LocationConfig::getRoot()const{
 	return _root;
 }
 
-const std::string& LocationConfig::getIndex(){
+const std::string& LocationConfig::getIndex()const{
 	return _index;
 }
 
-const std::string& LocationConfig::getLimitExcept(){
+const std::string& LocationConfig::getLimitExcept()const{
 	return _limit_except;
 }
 
-const size_t LocationConfig::getClientMax(){
+const size_t LocationConfig::getClientMax()const{
 	return _clientMax;
 }
 
-const bool LocationConfig::getAutoindex(){
+const bool LocationConfig::getAutoindex()const{
 	return _autoindex;
 }
 
-const std::vector<std::string>& LocationConfig::getAllowedMethods(){
+const std::vector<std::string>& LocationConfig::getAllowedMethods()const{
 	return _allowedMethods;
 }
 
-const std::map<std::string, std::string>& LocationConfig::getCgiParams(){
+const std::map<std::string, std::string>& LocationConfig::getCgiParams()const{
 	return _cgiParams;
 }
 
-const std::string& LocationConfig::getCgiPass(){
+const std::string& LocationConfig::getCgiPass()const{
 	return _cgiPass;
 }
 
-std::vector<std::string>& LocationConfig::getIPallow(){
+const std::vector<std::string>& LocationConfig::getIPallow()const{
 	return _IPallow;
 }
 
-std::vector<std::string>& LocationConfig::getIPdeny(){
+const std::vector<std::string>& LocationConfig::getIPdeny()const{
 	return _IPdeny;
 }
 

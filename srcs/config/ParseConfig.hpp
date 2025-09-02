@@ -33,4 +33,6 @@ class ParseConfig {
 			std::vector<std::string> parseBlock(const std::string& blockName);
 			void parseLocationDirectives(const std::string& blockContent, LocationConfig& location);
 			void parseServerDirectives(const std::string& blockContent, ServerConfig& server);
+			std::vector<std::string> extractLocationBlocks(const std::string& serverContent);
+			void parseLocationBlock(const std::string& locationBlock, ServerConfig& server);
 };

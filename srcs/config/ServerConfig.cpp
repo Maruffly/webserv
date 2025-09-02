@@ -50,10 +50,6 @@ void ServerConfig::setAutoindex(const bool autoindex){
 	_autoindex = autoindex;
 }
 
-void ServerConfig::setLocation(const std::vector<LocationConfig> locations){
-	_locations = locations;
-}
-
 const std::string& ServerConfig::getServerName(){
 	return _serverName;
 }
@@ -88,6 +84,8 @@ const bool ServerConfig::getAutoindex(){
 
 void ServerConfig::addLocation(const LocationConfig& location) {
 	_locations.push_back(location);
+	std::cout << "Added location: " << location.getPath() << std::endl;
+    std::cout << "Total locations now: " << _locations.size() << std::endl; // Debug
 }
 
 void ServerConfig::addErrorPage(int errorCode, const std::string& path) {
@@ -115,13 +113,7 @@ void ServerConfig::printConfig() const {
 	std::cout << std::endl;
 	std::cout << "============================" << std::endl;
 	for (size_t i = 0; i < _locations.size(); ++i) {
-		LocationConfig loc = _locations[i];
-		std::cout << "=== Location: " << loc.getPath() << " ===" << std::endl;
-		std::cout << "Root: " << loc.getRoot() << std::endl;
-		std::cout << "Index: " << loc.getIndex() << std::endl;
-		std::cout << "CGI Pass: " << loc.getCgiPass() << std::endl;
-		std::cout << "Client Max Body Size: " << loc.getClientMax() << std::endl;
-		std::cout << "Autoindex: " << (loc.getAutoindex() ? "on" : "off") << std::endl;
-		std::cout << "===========================" << std::endl;
+		const LocationConfig &loc = _locations[i];
+		loc.printConfigLocation();
 	}
 }
