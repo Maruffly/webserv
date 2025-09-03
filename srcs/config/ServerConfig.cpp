@@ -1,0 +1,119 @@
+#include "ServerConfig.hpp"
+
+ServerConfig::ServerConfig(){}
+ServerConfig::~ServerConfig(){}
+
+void ServerConfig::setServerName(const std::string& serverName){
+	_serverName = serverName;
+}
+
+void ServerConfig::setHost(const std::string& host){
+	_host = host;
+}
+
+void ServerConfig::setPort(const int port){
+	_port = port;
+}
+
+void ServerConfig::setRoot(const std::string& root){
+	_root = root;
+}
+
+void ServerConfig::setIndex(const std::string& index){
+	_index = index;
+}
+
+void ServerConfig::setListen(const std::string& listenStr){
+	std::vector<std::string> parts = ParserUtils::split(listenStr, ' ');
+	
+	std::string address = parts[0];
+	
+	if (address.find(':') != std::string::npos) {
+		// Format IP:PORT
+		std::vector<std::string> addrParts = ParserUtils::split(address, ':');
+		if (addrParts.size() == 2) {
+			_host = addrParts[0];
+			_port = std::atoi(addrParts[1].c_str());
+		}
+	} else {
+		// Format PORT only
+		_host = "0.0.0.0";
+		_port = std::atoi(address.c_str());
+	}
+}
+
+void ServerConfig::setClientMax(const size_t clientMax){
+	_clientMax = clientMax;
+}
+
+void ServerConfig::setAutoindex(const bool autoindex){
+	_autoindex = autoindex;
+}
+
+const std::string& ServerConfig::getServerName(){
+	return _serverName;
+}
+
+const std::string& ServerConfig::getHost(){
+	return _host;
+}
+
+const int ServerConfig::getPort(){
+	return _port;
+}
+
+const std::string& ServerConfig::getRoot(){
+	return _root;
+}
+
+const std::string& ServerConfig::getIndex(){
+	return _index;
+}
+
+const std::vector<std::string>& ServerConfig::getListen(){
+	return _listen;
+}
+
+const size_t ServerConfig::getClientMax(){
+	return _clientMax;
+}
+
+const bool ServerConfig::getAutoindex(){
+	return _autoindex;
+}
+
+void ServerConfig::addLocation(const LocationConfig& location) {
+	_locations.push_back(location);
+	std::cout << "Added location: " << location.getPath() << std::endl;
+    std::cout << "Total locations now: " << _locations.size() << std::endl; // Debug
+}
+
+void ServerConfig::addErrorPage(int errorCode, const std::string& path) {
+	_errorPages[errorCode] = path;
+}
+
+const std::vector<LocationConfig>& ServerConfig::getLocations() const {
+	return _locations;
+}
+
+void ServerConfig::printConfig() const {
+	std::cout << "=== Server Configuration ===" << std::endl;
+	std::cout << "Server Name: " << _serverName << std::endl;
+	std::cout << "Host: " << _host << std::endl;
+	std::cout << "Port: " << _port << std::endl;
+	std::cout << "Root: " << _root << std::endl;
+	std::cout << "Index: " << _index << std::endl;
+	std::cout << "Autoindex: " << (_autoindex ? "on" : "off") << std::endl;
+	std::cout << "Client Max Body Size: " << _clientMax << std::endl;
+	std::cout << "Listen Directives: ";
+	for (size_t i = 0; i < _listen.size(); ++i) {
+		std::cout << _listen[i];
+		if (i < _listen.size() - 1) std::cout << ", ";
+	}
+	std::cout << std::endl;
+	std::cout << "============================" << std::endl;
+	for (size_t i = 0; i < _locations.size(); ++i) {
+		const LocationConfig &loc = _locations[i];
+		loc.printConfigLocation();
+	}
+}
