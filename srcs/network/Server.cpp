@@ -1,20 +1,39 @@
 #include "Server.hpp"
 #include "epollManager.hpp"
 
-Server::Server(int port, const std::string& host) : _serverSocket(-1), _port(port), _host(host) 
+// Server::Server(int port, const std::string& host) : _serverSocket(-1), _port(port), _host(host) 
+// {
+// 	// convert int into string
+// 	std::ostringstream portStr;
+// 	portStr << _port;
+	
+// 	LOG("Initializing server on " + _host + ":" + portStr.str());
+	
+// 	createSocket();
+// 	setSocketOptions();
+// 	bindSocket();
+// 	startListening();
+	
+// 	INFO("Server ready and listening on " + _host + ":" + portStr.str());
+// }
+
+
+Server::Server(ServerConfig& config) : _serverSocket(-1), _config(config)
 {
-	// convert int into string
-	std::ostringstream portStr;
-	portStr << _port;
-	
-	LOG("Initializing server on " + _host + ":" + portStr.str());
-	
-	createSocket();
-	setSocketOptions();
-	bindSocket();
-	startListening();
-	
-	INFO("Server ready and listening on " + _host + ":" + portStr.str());
+    _port = config.getPort();
+    _host = config.getHost();
+    
+    std::ostringstream portStr;
+    portStr << _port;
+    
+    LOG("Initializing server from config: " + _host + ":" + portStr.str());
+    
+    createSocket();
+    setSocketOptions();
+    bindSocket();
+    startListening();
+    
+    INFO("Server ready and listening on " + _host + ":" + portStr.str());
 }
 
 
@@ -93,7 +112,7 @@ void Server::run()
 {
     try 
 	{
-        epollManager manager(_serverSocket);
+        epollManager manager(_serverSocket, _config);
         manager.run();
     } 
 	catch (const std::exception& e) { ERROR("epollManager failed: " + std::string(e.what())); }

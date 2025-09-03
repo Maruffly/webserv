@@ -71,11 +71,11 @@ const std::string& LocationConfig::getLimitExcept()const{
 	return _limit_except;
 }
 
-const size_t LocationConfig::getClientMax()const{
+size_t LocationConfig::getClientMax()const{
 	return _clientMax;
 }
 
-const bool LocationConfig::getAutoindex()const{
+bool LocationConfig::getAutoindex()const{
 	return _autoindex;
 }
 
@@ -109,7 +109,7 @@ void LocationConfig::printConfigLocation() const {
 	
 	if (!_cgiParams.empty()) {
 		std::cout << "  CGI Params:" << std::endl;
-		for (auto it = _cgiParams.begin(); it != _cgiParams.end(); ++it) {
+		for (std::map<std::string, std::string>::const_iterator it = _cgiParams.begin(); it != _cgiParams.end(); ++it) {
 			std::cout << "    " << it->first << " = " << it->second << std::endl;
 		}
 	}

@@ -50,35 +50,35 @@ void ServerConfig::setAutoindex(const bool autoindex){
 	_autoindex = autoindex;
 }
 
-const std::string& ServerConfig::getServerName(){
+const std::string& ServerConfig::getServerName() const {
 	return _serverName;
 }
 
-const std::string& ServerConfig::getHost(){
+const std::string& ServerConfig::getHost() const {
 	return _host;
 }
 
-const int ServerConfig::getPort(){
+int ServerConfig::getPort() const {
 	return _port;
 }
 
-const std::string& ServerConfig::getRoot(){
+const std::string& ServerConfig::getRoot() const {
 	return _root;
 }
 
-const std::string& ServerConfig::getIndex(){
+const std::string& ServerConfig::getIndex() const {
 	return _index;
 }
 
-const std::vector<std::string>& ServerConfig::getListen(){
+const std::vector<std::string>& ServerConfig::getListen() const {
 	return _listen;
 }
 
-const size_t ServerConfig::getClientMax(){
+size_t ServerConfig::getClientMax() const {
 	return _clientMax;
 }
 
-const bool ServerConfig::getAutoindex(){
+bool ServerConfig::getAutoindex() const {
 	return _autoindex;
 }
 

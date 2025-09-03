@@ -39,8 +39,8 @@ class LocationConfig {
 			const std::string& getRoot()const;
 			const std::string& getIndex()const;
 			const std::string& getLimitExcept()const;
-			const size_t getClientMax()const;
-			const bool getAutoindex()const;
+			size_t getClientMax()const;
+			bool getAutoindex()const;
 			const std::vector<std::string>& getAllowedMethods()const;
 			const std::map<std::string, std::string>& getCgiParams()const;
 			const std::string& getCgiPass()const;

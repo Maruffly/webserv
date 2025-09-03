@@ -3,13 +3,15 @@
 #include "../../include/Webserv.hpp"
 #include "../http/Request.hpp"
 #include "../http/Response.hpp"
+#include "../config/ServerConfig.hpp"
 
 class	Server
 {
 	private:
-		int			_serverSocket;
-		int			_port;
-		std::string	_host;
+		int				_serverSocket;
+		int				_port;
+		std::string		_host;
+		ServerConfig	_config;
 
 		void		createSocket();
 		void		setSocketOptions();
@@ -18,7 +20,8 @@ class	Server
 
 
 	public:
-		Server(int port = DEFAULT_PORT, const std::string &host = DEFAULT_HOST);
+		Server(ServerConfig& config);
+		// Server(int port = DEFAULT_PORT, const std::string &host = DEFAULT_HOST);
 		~Server();
 
 		void		run();

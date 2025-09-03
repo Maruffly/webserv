@@ -47,12 +47,14 @@ std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
 
 void ParseConfig::parseLocationDirectives(const std::string& blockContent, LocationConfig& location){
 	std::string trimmedContent = ParserUtils::trim(blockContent);
-    if (trimmedContent.back() == ';') {
+    if (!trimmedContent.empty() && trimmedContent[trimmedContent.size() - 1] == ';') {
         trimmedContent = trimmedContent.substr(0, trimmedContent.length() - 1);
-    }
+	}
 	std::vector<std::string> directives = ParserUtils::split(blockContent, ';');
     
-    for (const std::string& directive : directives) {
+    for (std::vector<std::string>::const_iterator it = directives.begin(); it != directives.end(); ++it)
+	{
+		const std::string& directive = *it;
         std::string line = ParserUtils::trim(directive);
         if (line.empty())
 			continue;
@@ -83,7 +85,12 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 		else if (directive_name == "client_max_body_size") {
 			size_t multiplier = 1;
 			if (!value.empty()) {
-				char lastChar = std::tolower(value.back());
+				char lastChar = 0;
+				if (!value.empty())
+				{
+					unsigned char uc = static_cast<unsigned char>(value[value.size() - 1]);
+					lastChar = static_cast<char>(std::tolower(uc));
+				}
 				if (lastChar == 'k') multiplier = 1024;
 				else if (lastChar == 'm') multiplier = 1024 * 1024;
 				else if (lastChar == 'g') multiplier = 1024 * 1024 * 1024;
@@ -168,7 +175,7 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 
 	std::vector<std::string> lines = ParserUtils::split(blockContent, '\n');
 	std::cout << "BLOCK CONTENT - before parseSerDirectives " << std::endl;
-	for (int i = 0; i < blockContent.size(); ++i)
+	for (std::string::size_type i = 0; i < blockContent.size(); ++i)
 		std::cout << blockContent[i];
 	std::cout << "\n" << std::endl;
 	 for (size_t i = 0; i < lines.size(); ++i) {
@@ -263,18 +270,18 @@ std::vector<ServerConfig> ParseConfig::parse(const std::string& configPath){
 	return servers;
 }
 
-int main(){
-	try {
-		ParseConfig parser;
-		std::vector<ServerConfig> servers = parser.parse("linux.conf");
+// int main(){
+// 	try {
+// 		ParseConfig parser;
+// 		std::vector<ServerConfig> servers = parser.parse("linux.conf");
 		
-		for (size_t i = 0; i < servers.size(); ++i) {
-			std::cout << "\nServer #" << i + 1 << ":" << std::endl;
-			servers[i].printConfig();
-		}
-	} catch (const std::exception& e) {
-		std::cerr << "Error: " << e.what() << std::endl;
-		return 1;
-	}
-	return 0;
-}
+// 		for (size_t i = 0; i < servers.size(); ++i) {
+// 			std::cout << "\nServer #" << i + 1 << ":" << std::endl;
+// 			servers[i].printConfig();
+// 		}
+// 	} catch (const std::exception& e) {
+// 		std::cerr << "Error: " << e.what() << std::endl;
+// 		return 1;
+// 	}
+// 	return 0;
+// }
