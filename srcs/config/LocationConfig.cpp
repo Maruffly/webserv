@@ -24,10 +24,6 @@ void LocationConfig::setClientMax(const size_t clientMax){
 	_clientMax = clientMax;
 }
 
-void LocationConfig::setAutoindex(const bool autoindex){
-	_autoindex = autoindex;
-}
-
 void LocationConfig::setAllowedMethods(std::vector<std::string>& allowedMethods){
 	_allowedMethods = allowedMethods;
 }
@@ -45,6 +41,15 @@ void LocationConfig::addAllowedMethod(const std::string& method) {
 
 void LocationConfig::addCgiParam(const std::string& key, const std::string& value) {
 	_cgiParams[key] = value;
+}
+
+void LocationConfig::setAutoindex(const std::string& autoindex){
+	bool autoIndex;
+	if (autoindex == "on")
+		autoIndex = true;
+	else
+		autoIndex = false;
+	_autoindex = autoIndex;
 }
 
 void LocationConfig::addAllow(const std::string& ip) {

@@ -32,7 +32,7 @@ class ServerConfig {
 			void setIndex(const std::string& index);
 			void setListen(const std::string& listenStr);
 			void setClientMax(const size_t clientMax);
-			void setAutoindex(const bool autoindex);
+			void setAutoindex(const std::string& autoindex);
 			void addErrorPage(int errorCode, const std::string& path);
 			void addLocation(const LocationConfig& location);
 			const std::vector<LocationConfig>& getLocations() const;

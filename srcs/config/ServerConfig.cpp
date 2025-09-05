@@ -1,9 +1,13 @@
 #include "ServerConfig.hpp"
+#include "ParseConfigException.hpp"
+#include "../utils/ValidationUtils.hpp"
 
 ServerConfig::ServerConfig(){}
 ServerConfig::~ServerConfig(){}
 
 void ServerConfig::setServerName(const std::string& serverName){
+	if (serverName.size() > MAXLEN)
+		throw ParseConfigException("Invalid name size", "server_name");
 	_serverName = serverName;
 }
 
@@ -27,27 +31,35 @@ void ServerConfig::setListen(const std::string& listenStr){
 	std::vector<std::string> parts = ParserUtils::split(listenStr, ' ');
 	
 	std::string address = parts[0];
-	
-	if (address.find(':') != std::string::npos) {
-		// Format IP:PORT
-		std::vector<std::string> addrParts = ParserUtils::split(address, ':');
-		if (addrParts.size() == 2) {
-			_host = addrParts[0];
-			_port = std::atoi(addrParts[1].c_str());
-		}
-	} else {
-		// Format PORT only
-		_host = "0.0.0.0";
-		_port = std::atoi(address.c_str());
-	}
+		if (address.find(':') != std::string::npos) {
+			// Format IP:PORT
+			std::vector<std::string> addrParts = ParserUtils::split(address, ':');
+			if (addrParts.size() == 2 || _port > 0) {
+				_host = addrParts[0];
+				_port = std::atoi(addrParts[1].c_str());
+				if (_port < 0 || _port > 65535)
+					throw ParseConfigException("Invalid port number : must be inferior to 65535", "autoindex");
+			}
+			} else {
+				// Format PORT only
+				_host = "0.0.0.0";
+				_port = std::atoi(address.c_str());
+				if (_port < 0 || _port > 65535)
+					throw ParseConfigException("Invalid port number - must be a positive integer between 0 and 65535", "listen");
+			}
 }
 
 void ServerConfig::setClientMax(const size_t clientMax){
 	_clientMax = clientMax;
 }
 
-void ServerConfig::setAutoindex(const bool autoindex){
-	_autoindex = autoindex;
+void ServerConfig::setAutoindex(const std::string& autoindex){
+	bool autoIndex;
+	if (autoindex == "on")
+		autoIndex = true;
+	else
+		autoIndex = false;
+	_autoindex = autoIndex;
 }
 
 const std::string& ServerConfig::getServerName(){

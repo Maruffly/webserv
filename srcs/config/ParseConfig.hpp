@@ -2,6 +2,8 @@
 
 #include "ServerConfig.hpp"
 #include "LocationConfig.hpp"
+#include "../utils/ValidationUtils.hpp"
+#include "ParseConfigException.hpp"
 
 #include <string>
 #include <vector>
@@ -22,9 +24,10 @@ enum Directive {
 
 class ParseConfig {
 		private:
+			int			_currentLine;
 			std::string _configContent;
 			size_t 		_pos;				
-				
+
 		public:
 			ServerConfig server;
 			ParseConfig();

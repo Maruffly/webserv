@@ -10,16 +10,20 @@ class LocationConfig {
 			std::string _path;
 			std::string _root;
 			std::string	_index;
-			std::string	_limit_except;
+
 			size_t		_clientMax;
 			bool		_autoindex;
+
+			std::string					_limit_except;
 			std::vector<std::string>	_allowedMethods;
-			std::map<std::string, std::string> _cgiParams;
-			std::string _cgiPass;
-			std::vector<std::string> _IPallow;
-			std::vector<std::string> _IPdeny;
+			std::vector<std::string> 	_IPallow;
+			std::vector<std::string> 	_IPdeny;
+
+			std::map<std::string, std::string>	_cgiParams;
+			std::string						 	_cgiPass;
 
 	public:
+			int lineOffset;
 			LocationConfig();
 			~LocationConfig();
 			void setPath(const std::string& path);
@@ -27,7 +31,7 @@ class LocationConfig {
 			void setIndex(const std::string& index);
 			void setLimitExcept(const std::string& limit_except);
 			void setClientMax(const size_t client);
-			void setAutoindex(const bool autoindex);
+			void setAutoindex(const std::string& autoindex);
 			void setAllowedMethods(std::vector<std::string>& allowedMethods);
 			void setCgiParams(const std::map<std::string, std::string>& cgiParams);
 			void setCgiPass(const std::string& cgiPass);
