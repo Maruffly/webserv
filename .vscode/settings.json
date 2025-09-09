@@ -52,5 +52,5 @@
 		"stdexcept": "cpp",
 		"streambuf": "cpp",
 		"print": "cpp"
-	}
+	},
 }
