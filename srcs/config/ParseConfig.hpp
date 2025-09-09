@@ -26,10 +26,8 @@ struct Directive {
 	std::string name;
 	std::string value;
 };
-
 class ParseConfig {
 		private:
-			int			_currentLine;
 			std::string _configContent;
 			size_t 		_pos;				
 

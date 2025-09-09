@@ -147,9 +147,9 @@ Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) {
 
 void ParseConfig::parseLocationDirectives(const std::string& blockContent, LocationConfig& location){
 	std::string trimmedContent = ParserUtils::trim(blockContent);
-	if (trimmedContent.back() == ';') {
-		trimmedContent = trimmedContent.substr(0, trimmedContent.length() - 1);
-	}
+    if (!trimmedContent.empty() && trimmedContent[trimmedContent.length() - 1] == ';') {
+        trimmedContent = trimmedContent.substr(0, trimmedContent.length() - 1);
+    }
 	std::vector<std::string> directives = ParserUtils::split(blockContent, ';');
 
 	for (size_t i = 0; i < directives.size(); ++i)
@@ -158,55 +158,58 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 
     	if (directive.name.empty())
 			continue;
-		if (directive.name == "root") {
-			if (!ValidationUtils::isValidPath(directive.value))
-				throw ParseConfigException("' - Invalid root path, it must be an absolut path.", "root", directives[i]);
-			location.setRoot(directive.value);
-		}
-		else if (directive.name == "index") {
-			location.setIndex(directive.value);
-		}
-		else if (directive.name == "cgi_pass") {
-			parseCgiPass(directive.value, location);
-		}
-		else if (directive.name == "cgi_param") {
-			parseCgiParam(directive, location, directives, i);
-		}
-		 else if (directive.name == "client_max_body_size") {
-			size_t bodySize;
-			std::string errorDetail;
-			if (!parseBodySize(directive.value, bodySize, errorDetail))
-				throw ParseConfigException("' - Invalid client_max_body_size: " + errorDetail, "client_max_body_size", directives[i]);
-			location.setClientMax(bodySize);
-		}
-		else if (directive.name == "autoindex") {
-			 if (directive.value != "on" && directive.value != "off")
-				throw ParseConfigException("' - Autoindex must be 'on' or 'off'", "autoindex", directives[i]);
-			location.setAutoindex(directive.value);
-		}
-		else if (directive.name == "allow") {
-			if (directive.value != "all" && !ValidationUtils::isValidIP(directive.value) && !ValidationUtils::isValidCIDR(directive.value))
-				throw ParseConfigException("' - Invalid IP address or CIDR", "allow", directives[i]);
-			location.addAllow(directive.value);
-		}
-		else if (directive.name == "deny") {
-			if (directive.value != "all" && !ValidationUtils::isValidIP(directive.value) && !ValidationUtils::isValidCIDR(directive.value))
-				throw ParseConfigException("' - Invalid IP address or CIDR", "deny", directives[i]);
-			location.addDeny(directive.value);
-		}
-		else if (directive.name == "limit_except") {
-			std::vector<std::string> methods = ParserUtils::split(directive.value, ' ');
-			if (methods.empty())
-					throw ParseConfigException("limit_except requires at least one method", "limit_except", directives[i]);
-			for (size_t j = 0; j < methods.size(); ++j) {
-				if (!ValidationUtils::isValidMethod(methods[j]))
-					throw ParseConfigException("' - Invalid HTTP method: " + methods[j], directives[i]);
-				location.addAllowedMethod(methods[j]);
-				}
-		}
-		else
-			 throw ParseConfigException("Unknown location directive: " + directive.name, directives[i]);
-		}
+		try {
+			if (directive.name == "root") {
+				if (!ValidationUtils::isValidPath(directive.value))
+					throw ParseConfigException("' - Invalid root path, it must be an absolut path.", "root", directives[i]);
+				location.setRoot(directive.value);
+			}
+			else if (directive.name == "index") {
+				location.setIndex(directive.value);
+			}
+			else if (directive.name == "cgi_pass") {
+				parseCgiPass(directive.value, location);
+			}
+			else if (directive.name == "cgi_param") {
+				parseCgiParam(directive, location, directives, i);
+			}
+			else if (directive.name == "client_max_body_size") {
+				size_t bodySize;
+				std::string errorDetail;
+				if (!parseBodySize(directive.value, bodySize, errorDetail))
+					throw ParseConfigException("' - Invalid client_max_body_size: " + errorDetail, "client_max_body_size", directives[i]);
+				location.setClientMax(bodySize);
+			}
+			else if (directive.name == "autoindex") {
+				if (directive.value != "on" && directive.value != "off")
+					throw ParseConfigException("' - Autoindex must be 'on' or 'off'", "autoindex", directives[i]);
+				location.setAutoindex(directive.value);
+			}
+			else if (directive.name == "allow") {
+				if (directive.value != "all" && !ValidationUtils::isValidIP(directive.value) && !ValidationUtils::isValidCIDR(directive.value))
+					throw ParseConfigException("' - Invalid IP address or CIDR", "allow", directives[i]);
+				location.addAllow(directive.value);
+			}
+			else if (directive.name == "deny") {
+				if (directive.value != "all" && !ValidationUtils::isValidIP(directive.value) && !ValidationUtils::isValidCIDR(directive.value))
+					throw ParseConfigException("' - Invalid IP address or CIDR", "deny", directives[i]);
+				location.addDeny(directive.value);
+			}
+			else if (directive.name == "limit_except") {
+				std::vector<std::string> methods = ParserUtils::split(directive.value, ' ');
+				if (methods.empty())
+						throw ParseConfigException("limit_except requires at least one method", "limit_except", directives[i]);
+				for (size_t j = 0; j < methods.size(); ++j) {
+					if (!ValidationUtils::isValidMethod(methods[j]))
+						throw ParseConfigException("' - Invalid HTTP method: " + methods[j], directives[i]);
+					location.addAllowedMethod(methods[j]);
+					}
+			}
+			else
+				throw ParseConfigException("Unknown location directive: " + directive.name, directives[i]);
+	}
+	catch (const ParseConfigException& e){throw;}
+	}
 }
 
 void ParseConfig::parseLocationBlock(const std::string& locationBlock, ServerConfig& server) {
@@ -251,7 +254,8 @@ void ParseConfig::parseLocationBlock(const std::string& locationBlock, ServerCon
 
 void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerConfig& server) {
 	std::vector<std::string> lines = ParserUtils::split(blockContent, '\n');
-	
+	Directive directive;
+
 	for (size_t i = 0; i < lines.size(); ++i) {
 		std::string line = ParserUtils::trim(lines[i]);
 
@@ -266,36 +270,35 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 		if (token.empty())
 			continue;
 		if (ParserUtils::startsWith(line, "server_name")){
-			std::string value = ParserUtils::getInBetween(line, "server_name", ";");
-			server.setServerName(ParserUtils::trim(value));
+			directive.value = ParserUtils::getInBetween(line, "server_name", ";");
+			server.setServerName(ParserUtils::trim(directive.value));
 		}
 		else if (ParserUtils::startsWith(line, "root")){
-			std::string value = ParserUtils::getInBetween(line, "root", ";");
-			if (!ValidationUtils::isValidPath(value))
+			directive.value = ParserUtils::getInBetween(line, "root", ";");
+			if (!ValidationUtils::isValidPath(directive.value))
 				throw ParseConfigException("Location : Invalid root path", "root");
-			server.setRoot(ParserUtils::trim(value));
+			server.setRoot(ParserUtils::trim(directive.value));
 		}
 		else if (ParserUtils::startsWith(line,"index")){
-			std::string value = ParserUtils::getInBetween(line, "index", ";");
-			server.setIndex(ParserUtils::trim(value));
+			directive.value = ParserUtils::getInBetween(line, "index", ";");
+			server.setIndex(ParserUtils::trim(directive.value));
 		}
 		else if (ParserUtils::startsWith(line,"listen")){
-			std::string value = ParserUtils::getInBetween(line, "listen", ";");
-			server.setListen(ParserUtils::trim(value));
+			directive.value = ParserUtils::getInBetween(line, "listen", ";");
+			server.setListen(ParserUtils::trim(directive.value));
 		}
 		else if (ParserUtils::startsWith(line,"autoindex")){
-			std::string value = ParserUtils::getInBetween(line, "autoindex", ";");
-			if (value != "on" && value != "off")
+			directive.value = ParserUtils::getInBetween(line, "autoindex", ";");
+			if (directive.value != "on" && directive.value != "off")
 				throw ParseConfigException("' - Autoindex must be 'on' or 'off'", "autoindex");
-			server.setAutoindex(value);
-			/* server.setAutoindex(ParserUtils::trim(value) == "on"); */
+			server.setAutoindex(directive.value);
 		}
 		else if (ParserUtils::startsWith(line,"client_max_body_size")) {
-			std::string value = ParserUtils::getInBetween(line, "client_max_body_size", ";");
+			directive.value = ParserUtils::getInBetween(line, "client_max_body_size", ";");
 			size_t bodySize;
 			std::string errorDetail;
 
-			if (!parseBodySize(ParserUtils::trim(value), bodySize, errorDetail)) {
+			if (!parseBodySize(ParserUtils::trim(directive.value), bodySize, errorDetail)) {
 				throw ParseConfigException("' - Invalid client_max_body_size: " + errorDetail, "client_max_body_size");
   			}
    			server.setClientMax(bodySize);

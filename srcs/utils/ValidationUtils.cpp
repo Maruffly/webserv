@@ -32,13 +32,16 @@ bool ValidationUtils::isValidIP(const std::string &ip){
 	return inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr)) == 1;
 }
 
-bool ValidationUtils::isValidMethod(const std::string &method){
-	static const std::vector<std::string> validMethods = 
-	{
+bool ValidationUtils::isValidMethod(const std::string &method) {
+    static const std::string validMethods[] = {
         "GET", "POST", "PUT", "DELETE", "HEAD", 
         "OPTIONS", "TRACE", "CONNECT", "PATCH"
     };
-    return std::find(validMethods.begin(), validMethods.end(), method) != validMethods.end();
+    static const std::vector<std::string> validMethodsVec(
+        validMethods, 
+        validMethods + sizeof(validMethods) / sizeof(validMethods[0])
+    );
+    return std::find(validMethodsVec.begin(), validMethodsVec.end(), method) != validMethodsVec.end();
 }
 
 bool ValidationUtils::isValidCIDR(const std::string& cidr) {
@@ -51,7 +54,7 @@ bool ValidationUtils::isValidCIDR(const std::string& cidr) {
     if (!isValidIP(ip))
 		return false;
     try {
-        int maskValue = std::stoi(mask);
+        int maskValue = std::atoi(mask.c_str());
         if (ip.find(':') != std::string::npos) { // IPv6 - to modify
             return maskValue >= 0 && maskValue <= 128;
         } else { // IPv4
@@ -73,8 +76,8 @@ bool ValidationUtils::isValidBodySize(const std::string& sizeStr) {
     size_t multiplier = 1;
     std::string numberPart = sizeStr;
     
-    if (!std::isdigit(sizeStr.back())) {
-        char unit = std::tolower(sizeStr.back());
+    if (!std::isdigit(sizeStr[sizeStr.length() - 1])) {
+        char unit = std::tolower(sizeStr[sizeStr.length() - 1]);
         numberPart = sizeStr.substr(0, sizeStr.size() - 1);
         
         if (unit == 'k') multiplier = 1024;
@@ -82,7 +85,14 @@ bool ValidationUtils::isValidBodySize(const std::string& sizeStr) {
         else if (unit == 'g') multiplier = 1024 * 1024 * 1024;
         else return false;
     }
-    if (numberPart.empty() || !std::all_of(numberPart.begin(), numberPart.end(), ::isdigit))
+    bool allDigits = true;
+    for (std::string::const_iterator it = numberPart.begin(); it != numberPart.end(); ++it) {
+        if (!std::isdigit(*it)) {
+            allDigits = false;
+            break;
+        }
+    }
+    if (numberPart.empty() || !allDigits)
         return false;
     return true;
 }

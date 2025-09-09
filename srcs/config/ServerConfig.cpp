@@ -70,15 +70,15 @@ const std::string& ServerConfig::getHost(){
 	return _host;
 }
 
-const int ServerConfig::getPort(){
+int ServerConfig::getPort(){
 	return _port;
 }
 
-const std::string& ServerConfig::getRoot(){
+const std::string& ServerConfig::getRoot() const{
 	return _root;
 }
 
-const std::string& ServerConfig::getIndex(){
+const std::string& ServerConfig::getIndex() const{
 	return _index;
 }
 
@@ -86,11 +86,11 @@ const std::vector<std::string>& ServerConfig::getListen(){
 	return _listen;
 }
 
-const size_t ServerConfig::getClientMax(){
+size_t ServerConfig::getClientMax() const{
 	return _clientMax;
 }
 
-const bool ServerConfig::getAutoindex(){
+bool ServerConfig::getAutoindex(){
 	return _autoindex;
 }
 

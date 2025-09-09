@@ -38,12 +38,12 @@ class ServerConfig {
 			const std::vector<LocationConfig>& getLocations() const;
 			const std::string& getServerName();
 			const std::string& getHost();
-			const int getPort();
-			const std::string& getRoot();
-			const std::string& getIndex();
+			int getPort();
+			const std::string& getRoot() const;
+			const std::string& getIndex() const;
 			const std::vector<std::string>& getListen();
-			const size_t getClientMax();
-			const bool getAutoindex();
+			size_t getClientMax() const;
+			bool getAutoindex();
 			const std::string& getLocation();
 			void printConfig() const;
 
