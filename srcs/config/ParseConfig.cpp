@@ -14,11 +14,8 @@ bool parseBodySize(const std::string& sizeStr, size_t& result, std::string& erro
 		errorDetail = "\nValue cannot be empty";
 		return false;
 	}
-	
 	std::string numberStr = sizeStr;
 	size_t multiplier = 1;
-	
-	// Check for unit
 	if (!isdigit(sizeStr[sizeStr.size() - 1])) {
 		char unit = tolower(sizeStr[sizeStr.size() - 1]);
 		numberStr = sizeStr.substr(0, sizeStr.size() - 1);
@@ -31,7 +28,6 @@ bool parseBodySize(const std::string& sizeStr, size_t& result, std::string& erro
 			return false;
 		}
 	}
-	
 	if (numberStr.empty()) {
 		errorDetail = "Missing numeric value";
 		return false;
@@ -42,15 +38,11 @@ bool parseBodySize(const std::string& sizeStr, size_t& result, std::string& erro
 		errorDetail = "\nInvalid number format";
 		return false;
 	}
-
 	unsigned long total = value * multiplier;
-
-	// Protection contre les dépassements de size_t
 	if (total > static_cast<unsigned long>(-1)) {
 		errorDetail = "\nValue too large (overflow)";
 		return false;
 	}
-
 	result = static_cast<size_t>(total);
 	if (result > MAX_BODY_SIZE){
 		errorDetail = "\nValue too large (exceeds 4G limit)";
@@ -59,10 +51,53 @@ bool parseBodySize(const std::string& sizeStr, size_t& result, std::string& erro
 	return true;
 }
 
+void parseCgiPass(std::string &value, LocationConfig& location){
+	std::vector<std::string> cgitoken = ParserUtils::split(value, ' ');
+	
+	if (cgitoken.size() == 1) {
+		if (!ValidationUtils::isValidPath(value))
+			throw ParseConfigException("Invalid CGI pass path - must be an absolute path", "cgi_pass");
+		location.addCgiPass(".*", value); // default extension for all files
+	} 
+	else if (cgitoken.size() >= 2) {
+		// multi cgi
+		std::string extension = cgitoken[0];
+		std::string interpreter;
+		for (size_t j = 1; j < cgitoken.size(); ++j) {
+			if (!interpreter.empty()) interpreter += " ";
+			interpreter += cgitoken[j];
+		}
+		if (!ValidationUtils::isValidPath(interpreter))
+			throw ParseConfigException("Invalid CGI interpreter path - must be an absolute path", "cgi_pass");
+		location.addCgiPass(extension, interpreter);
+	}
+	else
+		throw ParseConfigException("Invalid cgi_pass format", "cgi_pass");
+}
+
+void parseCgiParam(Directive &directive, LocationConfig& location, std::vector<std::string> directives, int i)
+{
+	std::vector<std::string> parts = ParserUtils::split(directive.value, ' ');
+			if (parts.size() < 2) {
+				throw ParseConfigException("' - cgi_param requires a name and a value",
+										"cgi_param", directives[i]);
+			}
+			std::string paramName = parts[0];
+			std::string paramValue = parts[1];
+			for (size_t j = 2; j < parts.size(); ++j) {
+				paramValue += " " + parts[j];
+			}
+			if (!ValidationUtils::isValidPath(paramValue)) {
+				throw ParseConfigException("' - Invalid CGI param path, it must be an absolute path.",
+										"cgi_param", directives[i]);
+			}
+			location.addCgiParam(paramName, paramValue);
+}
+
 std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
 	std::vector<std::string> blocks;
 	std::string searchPattern = blockName + " {";
-	
+
 	size_t pos = 0;
 	while ((pos = _configContent.find(searchPattern, pos)) != std::string::npos) {
 		size_t braceStart = _configContent.find('{', pos);
@@ -72,7 +107,7 @@ std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
 		size_t closeBraces = 0;
 		size_t endPos = braceStart + 1;
 		
-		// Parse jusqu'à trouver l'accolade fermante correspondante
+		// parse until corresponding brace closing
 		while (endPos < _configContent.length() && openBraces > closeBraces) {
 			if (_configContent[endPos] == '{') {
 				openBraces++;
@@ -91,6 +126,24 @@ std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
 	return blocks;
 }
 
+Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) {
+    Directive result;
+    std::string line = ParserUtils::trim(rawLine);
+
+    if (line.empty())
+        return result;
+    std::vector<std::string> token = ParserUtils::split(line, ' ');
+    if (token.empty())
+        return result;
+    result.name = token[0];
+    for (size_t i = 1; i < token.size(); ++i) {
+        if (!result.value.empty())
+            result.value += " ";
+        result.value += token[i];
+    }
+    result.value = ParserUtils::trim(result.value);
+    return result;
+}
 
 void ParseConfig::parseLocationDirectives(const std::string& blockContent, LocationConfig& location){
 	std::string trimmedContent = ParserUtils::trim(blockContent);
@@ -101,67 +154,48 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 
 	for (size_t i = 0; i < directives.size(); ++i)
 	{
-		std::string line = ParserUtils::trim(directives[i]);
-		if (line.empty())
-			continue;
-		std::vector<std::string> parts = ParserUtils::split(line, ' ');
-		if (parts.empty())
-			continue;
-		const std::string& directive_name = parts[0];
-		 std::string value;
-		for (size_t i = 1; i < parts.size(); i++) {
-			if (!value.empty())
-				value += " ";
-			value += parts[i];
-		}
-		value = ParserUtils::trim(value);
+		Directive directive = parseDirectiveLine(directives[i]);
 
-		if (directive_name == "root") {
-			if (!ValidationUtils::isValidPath(value))
+    	if (directive.name.empty())
+			continue;
+		if (directive.name == "root") {
+			if (!ValidationUtils::isValidPath(directive.value))
 				throw ParseConfigException("' - Invalid root path, it must be an absolut path.", "root", directives[i]);
-			location.setRoot(value);
+			location.setRoot(directive.value);
 		}
-		else if (directive_name == "index") {
-			location.setIndex(value);
+		else if (directive.name == "index") {
+			location.setIndex(directive.value);
 		}
-		else if (directive_name == "cgi_pass") {
-			if (!ValidationUtils::isValidPath(value))
-				throw ParseConfigException("' - Invalid CGI pass path, it must be an absolut path.", "cgi_pass", directives[i]);
-			location.setCgiPass(value);
+		else if (directive.name == "cgi_pass") {
+			parseCgiPass(directive.value, location);
 		}
-		else if (directive_name == "cgi_param" && parts.size() >= 3) {
-			std::string paramName = parts[1];
-			std::string paramValue = value.substr(paramName.size() + 1);
-/* 			std::cout << paramValue << std::endl; */
-			/* paramValue = ParserUtils::trim(paramValue); */
-			if (!ValidationUtils::isValidPath(paramValue))
-				throw ParseConfigException("' - Invalid CGI param path, it must be an absolut path.", "cgi_param", directives[i]);
-			location.addCgiParam(paramName, paramValue);
-}
-		 else if (directive_name == "client_max_body_size") {
+		else if (directive.name == "cgi_param") {
+			parseCgiParam(directive, location, directives, i);
+		}
+		 else if (directive.name == "client_max_body_size") {
 			size_t bodySize;
 			std::string errorDetail;
-			if (!parseBodySize(value, bodySize, errorDetail))
+			if (!parseBodySize(directive.value, bodySize, errorDetail))
 				throw ParseConfigException("' - Invalid client_max_body_size: " + errorDetail, "client_max_body_size", directives[i]);
 			location.setClientMax(bodySize);
 		}
-		else if (directive_name == "autoindex") {
-			 if (value != "on" && value != "off")
+		else if (directive.name == "autoindex") {
+			 if (directive.value != "on" && directive.value != "off")
 				throw ParseConfigException("' - Autoindex must be 'on' or 'off'", "autoindex", directives[i]);
-			location.setAutoindex(value);
+			location.setAutoindex(directive.value);
 		}
-		else if (directive_name == "allow") {
-			if (value != "all" && !ValidationUtils::isValidIP(value) && !ValidationUtils::isValidCIDR(value))
+		else if (directive.name == "allow") {
+			if (directive.value != "all" && !ValidationUtils::isValidIP(directive.value) && !ValidationUtils::isValidCIDR(directive.value))
 				throw ParseConfigException("' - Invalid IP address or CIDR", "allow", directives[i]);
-			location.addAllow(value);
+			location.addAllow(directive.value);
 		}
-		else if (directive_name == "deny") {
-			if (value != "all" && !ValidationUtils::isValidIP(value) && !ValidationUtils::isValidCIDR(value))
+		else if (directive.name == "deny") {
+			if (directive.value != "all" && !ValidationUtils::isValidIP(directive.value) && !ValidationUtils::isValidCIDR(directive.value))
 				throw ParseConfigException("' - Invalid IP address or CIDR", "deny", directives[i]);
-			location.addDeny(value);
+			location.addDeny(directive.value);
 		}
-		else if (directive_name == "limit_except") {
-			std::vector<std::string> methods = ParserUtils::split(value, ' ');
+		else if (directive.name == "limit_except") {
+			std::vector<std::string> methods = ParserUtils::split(directive.value, ' ');
 			if (methods.empty())
 					throw ParseConfigException("limit_except requires at least one method", "limit_except", directives[i]);
 			for (size_t j = 0; j < methods.size(); ++j) {
@@ -171,7 +205,7 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 				}
 		}
 		else
-			 throw ParseConfigException("Unknown location directive: " + directive_name, directives[i]);
+			 throw ParseConfigException("Unknown location directive: " + directive.name, directives[i]);
 		}
 }
 
@@ -183,15 +217,14 @@ void ParseConfig::parseLocationBlock(const std::string& locationBlock, ServerCon
 		std::cerr << "Invalid location block format" << std::endl;
 		return;
 	}
-	// Extract path
+	// extract path
 	std::string path = locationBlock.substr(locationStart + 8, braceStart - (locationStart + 8));
 	path = ParserUtils::trim(path);
 	if (path.empty()) {
 		std::cerr << "Warning: Empty location path" << std::endl;
 		return;
 	}
-
-	// Extract content between braces
+	// extract content between braces
 	std::string content;
 	size_t openBraces = 1;
 	size_t closeBraces = 0;
@@ -206,7 +239,7 @@ void ParseConfig::parseLocationBlock(const std::string& locationBlock, ServerCon
 		}
 		pos++;
 	}
-	// Clean brace excess
+	// clean brace excess
 	content = ParserUtils::trim(content);
 
 	LocationConfig location;
@@ -224,31 +257,13 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 
 		if (line.empty() || line == "{" || line == "}" || line == "server {")
 			continue;
-		
 		if (ParserUtils::startsWith(line, "location")) {
-			std::string locationBlock = line;
-			size_t openBraces = 0;
-			size_t closeBraces = 0;
-
-			for (size_t j = 0; j < line.size(); ++j) {
-				if (line[j] == '{') openBraces++;
-				if (line[j] == '}') closeBraces++;
-			}
-
-			while (++i < lines.size() && openBraces > closeBraces) {
-				locationBlock += "\n" + lines[i];
-				for (size_t j = 0; j < lines[i].size(); ++j) {
-					if (lines[i][j] == '{') openBraces++;
-					if (lines[i][j] == '}') closeBraces++;
-				}
-			}
+			std::string locationBlock = ParserUtils::checkBrace(line, lines, i);  // i is now passed by reference
 			parseLocationBlock(locationBlock, server);
-			if (i < lines.size())
-				i--;
-			continue;
+    		continue;
 		}
-		std::vector<std::string> parts = ParserUtils::split(line, ' ');
-		if (parts.empty())
+		std::vector<std::string> token = ParserUtils::split(line, ' ');
+		if (token.empty())
 			continue;
 		if (ParserUtils::startsWith(line, "server_name")){
 			std::string value = ParserUtils::getInBetween(line, "server_name", ";");
@@ -287,11 +302,11 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 		}
 		else if (ParserUtils::startsWith(line, "error_page")) {
 			std::string value = ParserUtils::getInBetween(line, "error_page", ";");
-	   		std::vector<std::string> parts = ParserUtils::split(value, ' ');
-			if (parts.size() >= 2) {
-				std::string errorPath = parts.back();
-				for (size_t j = 0; j < parts.size() - 1; ++j) {
-					int errorCode = std::atoi(parts[j].c_str());
+	   		std::vector<std::string> token = ParserUtils::split(value, ' ');
+			if (token.size() >= 2) {
+				std::string errorPath = token.back();
+				for (size_t j = 0; j < token.size() - 1; ++j) {
+					int errorCode = std::atoi(token[j].c_str());
 					if (errorCode > 0) {
 						server.addErrorPage(errorCode, errorPath);
 					}
@@ -311,22 +326,19 @@ std::vector<ServerConfig> ParseConfig::parse(const std::string& configPath){
 	std::stringstream buffer;
 	buffer << file.rdbuf();
 	_configContent = buffer.str(); //convert stream to str
-	/* for (size_t i = 0; i < _configContent.size(); ++i)
-		std::cout << _configContent[i]; */
 	std::vector<ServerConfig> servers;
 	std::vector<std::string> serverBlock = parseBlock("server");
 	for (size_t i = 0; i < serverBlock.size(); ++i){
 		ServerConfig server;
 		parseServerDirectives(serverBlock[i], server);
 		servers.push_back(server);
-		// std::cout << "BLOCK [" << i << "] \n" << serverBlock[i] << std::endl;
 	}
 	if (servers.empty())
 		std::cerr << "No server blocks found in config file" << std::endl;
 	return servers;
 }
 
-int main(){
+/* int main(){
 	try {
 		ParseConfig parser;
 		std::vector<ServerConfig> servers = parser.parse("linux.conf");
@@ -340,4 +352,4 @@ int main(){
 		return 1;
 	}
 	return 0;
-}
+} */

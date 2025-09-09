@@ -32,8 +32,9 @@ void LocationConfig::setCgiParams(const std::map<std::string, std::string>& cgiP
 	_cgiParams = cgiParams;
 }
 
-void LocationConfig::setCgiPass(const std::string& cgiPass) {
-	_cgiPass = cgiPass; }
+void LocationConfig::addCgiPass(const std::string& extension, const std::string& interpreter) {
+	_cgiPass[extension] = interpreter;
+}
 
 void LocationConfig::addAllowedMethod(const std::string& method) {
 	_allowedMethods.push_back(method);
@@ -92,7 +93,7 @@ const std::map<std::string, std::string>& LocationConfig::getCgiParams()const{
 	return _cgiParams;
 }
 
-const std::string& LocationConfig::getCgiPass()const{
+const std::map<std::string, std::string> &LocationConfig::getCgiPass()const{
 	return _cgiPass;
 }
 
@@ -104,11 +105,38 @@ const std::vector<std::string>& LocationConfig::getIPdeny()const{
 	return _IPdeny;
 }
 
+std::string LocationConfig::getCgiInterpreter(const std::string& extension) const {
+	std::map<std::string, std::string>::const_iterator it = _cgiPass.find(extension);
+	if (it != _cgiPass.end()) {
+		return it->second;
+	}
+	return "";
+}
+
+bool LocationConfig::isCgiRequest(const std::string& uri) const {
+	if (_cgiPass.empty()) return false;
+	
+	size_t lastDot = uri.find_last_of('.');
+	if (lastDot == std::string::npos) return false;
+	
+	std::string extension = uri.substr(lastDot);
+	return _cgiPass.find(extension) != _cgiPass.end();
+}
+
 void LocationConfig::printConfigLocation() const {
 	std::cout << "  === Location: " << _path << " ===" << std::endl;
 	std::cout << "  Root: " << _root << std::endl;
 	std::cout << "  Index: " << _index << std::endl;
-	std::cout << "  CGI Pass: " << _cgiPass << std::endl;
+	std::cout << "  CGI Pass: ";
+	if (_cgiPass.empty()) {
+		std::cout << "(none)";
+	} else {
+		for (std::map<std::string, std::string>::const_iterator it = _cgiPass.begin(); it != _cgiPass.end(); ++it) {
+			if (it != _cgiPass.begin()) std::cout << ", ";
+			std::cout << it->first << " => " << it->second;
+		}
+	}
+	std::cout << std::endl;
 	std::cout << "  Client Max Body Size: " << _clientMax << std::endl;
 	std::cout << "  Autoindex: " << (_autoindex ? "on" : "off") << std::endl;
 	

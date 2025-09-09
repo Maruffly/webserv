@@ -28,15 +28,15 @@ void ServerConfig::setIndex(const std::string& index){
 }
 
 void ServerConfig::setListen(const std::string& listenStr){
-	std::vector<std::string> parts = ParserUtils::split(listenStr, ' ');
+	std::vector<std::string> token = ParserUtils::split(listenStr, ' ');
 	
-	std::string address = parts[0];
+	std::string address = token[0];
 		if (address.find(':') != std::string::npos) {
 			// Format IP:PORT
-			std::vector<std::string> addrParts = ParserUtils::split(address, ':');
-			if (addrParts.size() == 2 || _port > 0) {
-				_host = addrParts[0];
-				_port = std::atoi(addrParts[1].c_str());
+			std::vector<std::string> addrtoken = ParserUtils::split(address, ':');
+			if (addrtoken.size() == 2 || _port > 0) {
+				_host = addrtoken[0];
+				_port = std::atoi(addrtoken[1].c_str());
 				if (_port < 0 || _port > 65535)
 					throw ParseConfigException("Invalid port number : must be inferior to 65535", "autoindex");
 			}

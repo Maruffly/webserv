@@ -12,14 +12,19 @@
 #include <sstream>
 #include <algorithm>
 
-enum Directive {
-    SERVER_NAME,
-    ROOT,
-    INDEX,
-    LISTEN,
-    AUTOINDEX,
-    CGI_PARAM,
-    UNKNOWN
+enum DirectiveName {
+	SERVER_NAME,
+	ROOT,
+	INDEX,
+	LISTEN,
+	AUTOINDEX,
+	CGI_PARAM,
+	UNKNOWN
+};
+
+struct Directive {
+	std::string name;
+	std::string value;
 };
 
 class ParseConfig {
@@ -38,4 +43,5 @@ class ParseConfig {
 			void parseServerDirectives(const std::string& blockContent, ServerConfig& server);
 			std::vector<std::string> extractLocationBlocks(const std::string& serverContent);
 			void parseLocationBlock(const std::string& locationBlock, ServerConfig& server);
+			Directive parseDirectiveLine(const std::string &rawLine);
 };

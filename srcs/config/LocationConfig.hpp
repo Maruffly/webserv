@@ -20,7 +20,7 @@ class LocationConfig {
 			std::vector<std::string> 	_IPdeny;
 
 			std::map<std::string, std::string>	_cgiParams;
-			std::string						 	_cgiPass;
+			std::map<std::string, std::string>	_cgiPass;
 
 	public:
 			int lineOffset;
@@ -34,7 +34,7 @@ class LocationConfig {
 			void setAutoindex(const std::string& autoindex);
 			void setAllowedMethods(std::vector<std::string>& allowedMethods);
 			void setCgiParams(const std::map<std::string, std::string>& cgiParams);
-			void setCgiPass(const std::string& cgiPass);
+			void addCgiPass(const std::string& extension, const std::string& interpreter);
 			void addCgiParam(const std::string& key, const std::string& value);
 			void addAllowedMethod(const std::string& method);
 			void addAllow(const std::string& ip);
@@ -47,8 +47,10 @@ class LocationConfig {
 			const bool getAutoindex()const;
 			const std::vector<std::string>& getAllowedMethods()const;
 			const std::map<std::string, std::string>& getCgiParams()const;
-			const std::string& getCgiPass()const;
+			const std::map<std::string, std::string>& getCgiPass()const;
 			const std::vector<std::string>& getIPallow()const;
 			const std::vector<std::string>& getIPdeny()const;
+			std::string getCgiInterpreter(const std::string& extension) const;
+   			bool isCgiRequest(const std::string& uri) const;
 			void printConfigLocation() const;
 };

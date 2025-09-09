@@ -46,3 +46,23 @@ bool ParserUtils::endsWith(const std::string& str, const std::string& suffix){
 	return str.size() >= suffix.size() &&
 	str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
+
+std::string ParserUtils::checkBrace(std::string &line, std::vector<std::string> &lines, int i) {
+	std::string locationBlock = line;
+	size_t openBraces = 0;
+	size_t closeBraces = 0;
+
+	for (size_t j = 0; j < line.size(); ++j) {
+		if (line[j] == '{') openBraces++;
+		if (line[j] == '}') closeBraces++;
+	}
+	while (openBraces > closeBraces && i + 1 < static_cast<int>(lines.size())) {
+		i++;
+		locationBlock += "\n" + lines[i];
+		for (size_t j = 0; j < lines[i].size(); ++j) {
+			if (lines[i][j] == '{') openBraces++;
+			if (lines[i][j] == '}') closeBraces++;
+		}
+	}
+	return locationBlock;
+}
