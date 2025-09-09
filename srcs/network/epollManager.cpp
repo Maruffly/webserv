@@ -142,18 +142,31 @@ Response epollManager::createResponseForRequest(const Request& request) {
     if (uri == "/" || uri == "/index.html") {
         // Servir la page d'accueil configurée
         std::string root = _config.getRoot();
-        std::string indexFile = _config.getIndex();
-        std::string filePath = root + "/" + indexFile;
+        std::string indexFiles = _config.getIndex();
         
-        if (fileExists(filePath)) {
-            response.setStatus(200, "OK");
-            response.setHeader("Content-Type", getContentType(indexFile));
-            response.setBody(readFileContent(filePath));
-        } else {
+        // Parse multiple index files (space-separated)
+        std::vector<std::string> indexList = ParserUtils::split(indexFiles, ' ');
+        bool indexFound = false;
+        
+        for (size_t i = 0; i < indexList.size() && !indexFound; ++i) {
+            std::string indexFile = ParserUtils::trim(indexList[i]);
+            if (!indexFile.empty()) {
+                std::string filePath = root + "/" + indexFile;
+                
+                if (fileExists(filePath)) {
+                    response.setStatus(200, "OK");
+                    response.setHeader("Content-Type", getContentType(indexFile));
+                    response.setBody(readFileContent(filePath));
+                    indexFound = true;
+                }
+            }
+        }
+        
+        if (!indexFound) {
             response.setStatus(404, "Not Found");
             response.setHeader("Content-Type", "text/html");
             response.setBody(createHtmlResponse("404 Not Found", 
-                                              "Index file not found: " + indexFile));
+                                              "Index file not found: " + indexFiles));
         }
     }
     else if (location && !location->getCgiPass().empty() && 
@@ -177,13 +190,25 @@ Response epollManager::createResponseForRequest(const Request& request) {
                     response.setHeader("Content-Type", "text/html");
                     response.setBody(generateDirectoryListing(filePath, uri));
                 } else {
-                    // Autoindex désactivé, chercher index.html
-                    std::string indexFilePath = filePath + "/" + _config.getIndex();
-                    if (fileExists(indexFilePath)) {
-                        response.setStatus(200, "OK");
-                        response.setHeader("Content-Type", getContentType(_config.getIndex()));
-                        response.setBody(readFileContent(indexFilePath));
-                    } else {
+                    // Autoindex désactivé, chercher index files
+                    std::string indexFiles = _config.getIndex();
+                    std::vector<std::string> indexList = ParserUtils::split(indexFiles, ' ');
+                    bool indexFound = false;
+                    
+                    for (size_t i = 0; i < indexList.size() && !indexFound; ++i) {
+                        std::string indexFile = ParserUtils::trim(indexList[i]);
+                        if (!indexFile.empty()) {
+                            std::string indexFilePath = filePath + "/" + indexFile;
+                            if (fileExists(indexFilePath)) {
+                                response.setStatus(200, "OK");
+                                response.setHeader("Content-Type", getContentType(indexFile));
+                                response.setBody(readFileContent(indexFilePath));
+                                indexFound = true;
+                            }
+                        }
+                    }
+                    
+                    if (!indexFound) {
                         response.setStatus(403, "Forbidden");
                         response.setHeader("Content-Type", "text/html");
                         response.setBody(createHtmlResponse("403 Forbidden", 
