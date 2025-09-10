@@ -156,3 +156,27 @@ bool isCgiFile(const std::string& uri, const std::vector<LocationConfig>& locati
     // Extensions CGI courantes
     return (extension == "php" || extension == "py" || extension == "pl" || extension == "cgi");
 }
+
+std::string toUpperCase(const std::string& str) {
+    std::string result = str;
+    std::transform(result.begin(), result.end(), result.begin(), ::toupper);
+    return result;
+}
+
+std::string replaceChars(const std::string& str, const std::string& from, const std::string& to) {
+    std::string result = str;
+    size_t pos = 0;
+    while ((pos = result.find(from, pos)) != std::string::npos) {
+        result.replace(pos, from.length(), to);
+        pos += to.length();
+    }
+    return result;
+}
+
+std::string getFileExtension(const std::string& path) {
+    size_t dot = path.find_last_of(".");
+    if (dot == std::string::npos) {
+        return "";
+    }
+    return path.substr(dot + 1);
+}

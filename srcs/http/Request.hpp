@@ -22,6 +22,7 @@ class	Request
 		void		parseRequest();
 
 		// getters
+		const std::map<std::string, std::string>& getHeaders() const;
 		std::string	getRawRequest() const;
 		std::string	getMethod() const;
 		std::string	getUri() const;

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Area - Webserv</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 40px;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #e74c3c;
+            padding-bottom: 10px;
+        }
+        .warning {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border: 1px solid #ffeaa7;
+        }
+        .access-info {
+            background: #f8d7da;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border: 1px solid #f5c6cb;
+        }
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 8px 15px;
+            background: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+        .back-link:hover {
+            background: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Admin Area</h1>
+        <p>Welcome to the restricted admin area.</p>
+        
+        <div class="access-info">
+            <h3>⚠️ Access Restrictions:</h3>
+            <ul>
+                <li><strong>Allowed:</strong> 192.168.1.0/24 network</li>
+                <li><strong>Denied:</strong> All other IPs</li>
+                <li><strong>Current Access:</strong> If you can see this page, your IP is allowed</li>
+            </ul>
+        </div>
+        
+        <div class="warning">
+            <h3>Configuration for /admin:</h3>
+            <ul>
+                <li><strong>Allow:</strong> 192.168.1.0/24</li>
+                <li><strong>Deny:</strong> all</li>
+                <li><strong>Purpose:</strong> IP-based access control demonstration</li>
+                <li><strong>Location:</strong> ./www/html/admin/</li>
+            </ul>
+        </div>
+        
+        <p><strong>Note:</strong> This demonstrates IP-based access control. In a real scenario, only clients from the 192.168.1.x network would be able to access this area.</p>
+        
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+</body>
+</html>

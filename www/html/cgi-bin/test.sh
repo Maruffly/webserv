@@ -1,0 +1,10 @@
+#!/bin/bash
+echo "Content-Type: text/html"
+echo ""
+echo "<html><head><title>Bash CGI Test</title></head>"
+echo "<body>"
+echo "<h1>Bash CGI Working!</h1>"
+echo "<p>Time: $(date)</p>"
+echo "<p>Shell: $BASH_VERSION</p>"
+echo "<p>Request Method: $REQUEST_METHOD</p>"
+echo "</body></html>"

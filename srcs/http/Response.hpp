@@ -7,8 +7,11 @@ class	Response
 	private:
 		std::string	_response;
 		std::string	_body;
-	
+		std::map<std::string, std::string> _headers;
+		std::string _statusLine;
+		int _statusCode;
 	public:
+		const std::map<std::string, std::string>& getHeaders() const;
 		Response();
 		~Response();
 

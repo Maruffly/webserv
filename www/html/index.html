@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Webserv</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 40px;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .success {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .info {
+            background: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .links {
+            margin-top: 30px;
+        }
+        .links a {
+            display: inline-block;
+            margin: 5px 10px 5px 0;
+            padding: 8px 15px;
+            background: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background 0.3s;
+        }
+        .links a:hover {
+            background: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Welcome to Webserv!</h1>
+        <p class="success">✅ Server is running successfully!</p>
+        
+        <div class="info">
+            <h3>Server Information:</h3>
+            <ul>
+                <li><strong>Server:</strong> webserv/1.0</li>
+                <li><strong>Port:</strong> 8080</li>
+                <li><strong>Root Directory:</strong> ./www/html</li>
+                <li><strong>Configuration:</strong> linux.conf</li>
+            </ul>
+        </div>
+
+        <h3>Test Different Locations:</h3>
+        <div class="links">
+            <a href="/">Home</a>
+            <a href="/uploads/">Uploads Directory</a>
+            <a href="/cgi-bin/">CGI Scripts</a>
+            <a href="/admin">Admin Area</a>
+            <a href="/nonexistent">Test 404 Error</a>
+        </div>
+
+        <div class="info">
+            <h3>Features Configured:</h3>
+            <ul>
+                <li>✅ Static file serving</li>
+                <li>✅ Multiple location blocks</li>
+                <li>✅ Error page handling</li>
+                <li>✅ CGI support (configured)</li>
+                <li>✅ Upload directory with custom size limits</li>
+                <li>✅ Admin area with IP restrictions</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

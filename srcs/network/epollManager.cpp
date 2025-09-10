@@ -3,27 +3,16 @@
 #include "../http/Response.hpp"
 #include "../config/ServerConfig.hpp"
 #include "../utils/Utils.hpp"
+#include "../cgi/CgiHandler.hpp"
 
+bool epollManager::isCgiRequest(const std::string& uri) const {
+    // Get the location block for this URI
+    const LocationConfig* location = findLocationConfig(uri);
+    if (!location) return false;
 
-// epollManager::epollManager(int serverSocket) : _serverSocket(serverSocket), _epollFd(-1)
-// {
-// 	_epollFd = epoll_create1(0);
-// 	if (_epollFd == -1)
-// 		throw std::runtime_error("epoll_create1 failed");
-// 	LOG("epoll instance created");
-
-// 	struct epoll_event	event;
-// 	event.events = EPOLLIN; // monitoring readings
-// 	event.data.fd = _serverSocket;
-
-// 	if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, _serverSocket, &event) == -1)
-// 	{
-// 		close(_epollFd);
-// 		throw std::runtime_error("Failed to add server socket to epoll");
-// 	}
-// 	LOG("Server socket added to epoll");
-// }
-
+    // Check if this location has CGI configured
+    return !location->getCgiPass().empty();
+}
 
 epollManager::epollManager(int serverSocket, const ServerConfig& config) 
     : _serverSocket(serverSocket), _epollFd(-1), _config(config)
@@ -109,15 +98,18 @@ Response epollManager::createResponseForRequest(const Request& request) {
         
         // Construire le header Allow avec les méthodes autorisées
         const LocationConfig* location = findLocationConfig(uri);
-        if (location && !location->getAllowedMethods().empty()) {
-            std::string allowedMethods;
-            const std::vector<std::string>& methods = location->getAllowedMethods();
-            for (size_t i = 0; i < methods.size(); ++i) {
-                allowedMethods += methods[i];
-                if (i < methods.size() - 1) allowedMethods += ", ";
-            }
-            response.setHeader("Allow", allowedMethods);
+         if (location && !location->getCgiPass().empty()) {
+        std::string extension = getFileExtension(uri);
+        std::map<std::string, std::string> cgiConfig = location->getCgiPass();
+        
+        if (cgiConfig.find(extension) != cgiConfig.end()) {
+            std::string interpreter = cgiConfig[extension];
+            std::string scriptPath = location->getRoot() + uri;
+            
+            CgiHandler cgi;
+            return cgi.execute(request, scriptPath, interpreter);
         }
+    }
         
         response.setBody(createHtmlResponse("405 Method Not Allowed", 
                                           "Method " + method + " is not allowed for this resource"));
@@ -142,28 +134,68 @@ Response epollManager::createResponseForRequest(const Request& request) {
     if (uri == "/" || uri == "/index.html") {
         // Servir la page d'accueil configurée
         std::string root = _config.getRoot();
-        std::string indexFile = _config.getIndex();
-        std::string filePath = root + "/" + indexFile;
+        std::string indexFiles = _config.getIndex();
         
-        if (fileExists(filePath)) {
-            response.setStatus(200, "OK");
-            response.setHeader("Content-Type", getContentType(indexFile));
-            response.setBody(readFileContent(filePath));
-        } else {
+        // Parse multiple index files (space-separated)
+        std::vector<std::string> indexList = ParserUtils::split(indexFiles, ' ');
+        bool indexFound = false;
+        
+        for (size_t i = 0; i < indexList.size() && !indexFound; ++i) {
+            std::string indexFile = ParserUtils::trim(indexList[i]);
+            if (!indexFile.empty()) {
+                std::string filePath = root + "/" + indexFile;
+                
+                if (fileExists(filePath)) {
+                    response.setStatus(200, "OK");
+                    response.setHeader("Content-Type", getContentType(indexFile));
+                    response.setBody(readFileContent(filePath));
+                    indexFound = true;
+                }
+            }
+        }
+        
+        if (!indexFound) {
             response.setStatus(404, "Not Found");
             response.setHeader("Content-Type", "text/html");
             response.setBody(createHtmlResponse("404 Not Found", 
-                                              "Index file not found: " + indexFile));
+                                              "Index file not found: " + indexFiles));
         }
     }
-    else if (location && !location->getCgiPass().empty() && 
-             isCgiFile(uri, _config.getLocations())) {
-        // Gestion CGI - à implémenter plus tard
-        response.setStatus(501, "Not Implemented");
-        response.setBody(createHtmlResponse("501 Not Implemented", 
-                                          "CGI support not yet implemented"));
-        response.setHeader("Content-Type", "text/html");
+   else if (location && !location->getCgiPass().empty() && 
+         isCgiFile(uri, _config.getLocations())) {
+    std::string extension = getFileExtension(uri);
+    const std::map<std::string, std::string>& cgiConfig = location->getCgiPass();
+    
+    // Debug logging
+    std::cout << "Processing CGI request for extension: " << extension << std::endl;
+    std::cout << "Available CGI handlers: " << std::endl;
+    for (std::map<std::string, std::string>::const_iterator it = cgiConfig.begin(); 
+         it != cgiConfig.end(); ++it) {
+        std::cout << "  " << it->first << " => " << it->second << std::endl;
     }
+    
+    // Check for exact match or wildcard
+    std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension);
+    if (it == cgiConfig.end()) {
+        it = cgiConfig.find(".*"); // Try wildcard match
+    }
+    
+    if (it != cgiConfig.end()) {
+        std::string interpreter = it->second;
+        std::string scriptPath = location->getRoot() + uri;
+        
+        std::cout << "Executing CGI with:" << std::endl
+                 << "  Interpreter: " << interpreter << std::endl
+                 << "  Script path: " << scriptPath << std::endl;
+        
+        CgiHandler cgi;
+        return cgi.execute(request, scriptPath, interpreter);
+    } else {
+        response.setStatus(400, "Bad Request");
+        response.setBody(createHtmlResponse("400 Bad Request", 
+                       "No CGI interpreter configured for extension: " + extension));
+    }
+}
     else {
         // Servir des fichiers statiques
         std::string filePath = _config.getRoot() + uri;
@@ -177,13 +209,25 @@ Response epollManager::createResponseForRequest(const Request& request) {
                     response.setHeader("Content-Type", "text/html");
                     response.setBody(generateDirectoryListing(filePath, uri));
                 } else {
-                    // Autoindex désactivé, chercher index.html
-                    std::string indexFilePath = filePath + "/" + _config.getIndex();
-                    if (fileExists(indexFilePath)) {
-                        response.setStatus(200, "OK");
-                        response.setHeader("Content-Type", getContentType(_config.getIndex()));
-                        response.setBody(readFileContent(indexFilePath));
-                    } else {
+                    // Autoindex désactivé, chercher index files
+                    std::string indexFiles = _config.getIndex();
+                    std::vector<std::string> indexList = ParserUtils::split(indexFiles, ' ');
+                    bool indexFound = false;
+                    
+                    for (size_t i = 0; i < indexList.size() && !indexFound; ++i) {
+                        std::string indexFile = ParserUtils::trim(indexList[i]);
+                        if (!indexFile.empty()) {
+                            std::string indexFilePath = filePath + "/" + indexFile;
+                            if (fileExists(indexFilePath)) {
+                                response.setStatus(200, "OK");
+                                response.setHeader("Content-Type", getContentType(indexFile));
+                                response.setBody(readFileContent(indexFilePath));
+                                indexFound = true;
+                            }
+                        }
+                    }
+                    
+                    if (!indexFound) {
                         response.setStatus(403, "Forbidden");
                         response.setHeader("Content-Type", "text/html");
                         response.setBody(createHtmlResponse("403 Forbidden", 
@@ -255,78 +299,6 @@ void	epollManager::handleNewConnection()
 
 
 
-// Response epollManager::createResponseForRequest(const Request& request) {
-//     Response response;
-    
-//     // http version checking
-//     if (request.getVersion() != "HTTP/1.1" && request.getVersion() != "HTTP/1.0") 
-//     {
-//         response.setStatus(505, "HTTP Version Not Supported");
-//         response.setBody(createHtmlResponse("505 HTTP Version Not Supported", 
-//                                           "Unsupported HTTP version: " + request.getVersion()));
-//         response.setHeader("Content-Type", "text/html");
-//         return response;
-//     }
-
-//     // methods checking
-//     std::string method = request.getMethod();
-//     if (method != "GET" && method != "POST" && method != "DELETE") 
-//     {
-//         response.setStatus(405, "Method Not Allowed");
-//         response.setHeader("Allow", "GET, POST, DELETE");
-//         response.setBody(createHtmlResponse("405 Method Not Allowed", 
-//                                           "Method " + method + " is not allowed on this server"));
-//         response.setHeader("Content-Type", "text/html");
-//         return response;
-//     }
-
-//     // Routing basé sur l'URI
-//     std::string uri = request.getUri();
-//     std::string contentType = getContentType(uri);
-    
-//     if (uri == "/" || uri == "/index.html") 
-//     {
-//         response.setStatus(200, "OK");
-//         response.setHeader("Content-Type", contentType);
-//         response.setBody(createHtmlResponse("Welcome to webserv", 
-//                                           "Server is running correctly!<br>"
-//                                           "URI: " + uri + "<br>"
-//                                           "Method: " + method + "<br>"
-//                                           "Version: " + request.getVersion()));
-//     }
-//     else if (uri == "/hello") 
-//     {
-//         response.setStatus(200, "OK");
-//         response.setHeader("Content-Type", contentType);
-//         response.setBody(createHtmlResponse("Hello Page", 
-//                                           "Hello from webserv with epoll!<br>"
-//                                           "This is a dynamic response."));
-//     }
-//     else if (uri == "/redirect") 
-//     {
-//         response.setStatus(302, "Found");
-//         response.setHeader("Location", "/hello");
-//         response.setBody(createHtmlResponse("302 Redirect", 
-//                                           "Redirecting to /hello page"));
-//     }
-//     else 
-//     {
-//         response.setStatus(404, "Not Found");
-//         response.setHeader("Content-Type", "text/html");
-//         response.setBody(createHtmlResponse("404 Not Found", 
-//                                           "The requested URL " + uri + " was not found on this server.<br>"
-//                                           "Please check the URL and try again."));
-//     }
-
-//     // Headers common to all responses
-//     response.setHeader("Connection", "close");
-//     response.setHeader("Server", "webserv/1.0");
-//     response.setHeader("Date", getCurrentDate());
-
-//     return response;
-// }
-
-
 void epollManager::sendErrorResponse(int clientFd, int code, const std::string& message) 
 {
     Response response;
@@ -382,21 +354,26 @@ void epollManager::handleClientData(int clientFd)
                     // Gestion d'erreur sur l'envoi
                     if (send(clientFd, responseStr.c_str(), responseStr.length(), 0) == -1) 
                         ERROR("Failed to send response to client " + toString(clientFd));
-                    else 
+                    else{
                         LOG("Response sent to client " + toString(clientFd));
+                        if (!isCgiRequest(request.getUri())) {
+                            closeClient(clientFd);
+                        }
+                    }
                 } 
                 else 
                 {
                     LOG("Incomplete request from client " + toString(clientFd));
                     sendErrorResponse(clientFd, 400, "Bad Request");
+                    closeClient(clientFd);
                 }
             } 
             catch (const std::exception& e) 
             {
                 ERROR("Request parsing failed: " + std::string(e.what()));
                 sendErrorResponse(clientFd, 400, "Bad Request");
+                closeClient(clientFd);
             }
-
             _clientBuffers[clientFd].clear();
             closeClient(clientFd);
             return;
@@ -433,7 +410,7 @@ void epollManager::run()
     while (true) {
         int numEvents = epoll_wait(_epollFd, events, MAX_EVENTS, -1);
         if (numEvents == -1) {
-            if (errno == EINTR) continue; // Interrupted system call
+            if (errno == EINTR) continue;
             ERROR("epoll_wait failed");
             break;
         }

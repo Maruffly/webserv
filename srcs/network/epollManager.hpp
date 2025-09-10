@@ -19,7 +19,7 @@ class	epollManager
 		void		closeClient(int clientFd);
 		void		sendErrorResponse(int clientFd, int code, const std::string& message);
 		Response	createResponseForRequest(const Request& request);
-
+		bool		isCgiRequest(const std::string& uri) const;
 		bool        isMethodAllowed(const std::string& method, const std::string& uri) const;
 		std::string resolveFilePath(const std::string& uri) const;
 		const LocationConfig* findLocationConfig(const std::string& uri) const;

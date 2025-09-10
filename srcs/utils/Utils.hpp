@@ -23,3 +23,7 @@ std::string	readFileContent(const std::string& path);
 std::string	getContentType(const std::string& path);
 std::string	generateDirectoryListing(const std::string& dirPath, const std::string& uri);
 bool 		isCgiFile(const std::string& uri, const std::vector<LocationConfig>& locations);
+
+std::string toUpperCase(const std::string& str);
+std::string replaceChars(const std::string& str, const std::string& from, const std::string& to);
+std::string getFileExtension(const std::string& path);

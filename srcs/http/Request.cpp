@@ -119,7 +119,9 @@ std::string	Request::getHeader(const std::string &name) const
 	return "";
 }
 
-
+const std::map<std::string, std::string>& Request::getHeaders() const {
+        return _headers;
+    }
 
 void Request::print() const 
 {

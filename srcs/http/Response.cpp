@@ -4,29 +4,42 @@
 Response::Response() {}
 Response::~Response() {}
 
+const std::map<std::string, std::string>& Response::getHeaders() const {
+		return _headers;
+}
 
 void	Response::setStatus(int code, const std::string &message)
 {
-	_response = "HTTP/1.1 " + toString(code) + " " + message + "\r\n";
+	_statusCode = code;
+	_statusLine = "HTTP/1.1 " + toString(code) + " " + message + "\r\n";
 }
 
 
 void	Response::setHeader(const std::string &name, const std::string &value)
 {
-	_response += name + ": " + value + "\r\n";
+	 _headers[name] = value;
+	//_response += name + ": " + value + "\r\n";
 }
 
 
 void Response::setBody(const std::string& body) 
 {
-    _body = body;
-    // dynamic content length
-    setHeader("Content-Length", toString(_body.length()));
-    _response += "\r\n" + _body;
+	_body = body;
+	// dynamic content length
+	setHeader("Content-Length", toString(_body.length()));
+	//_response += "\r\n" + _body;
 }
 
 
 std::string	Response::getResponse() const
 {
-	return _response;
+	std::string response = _statusLine;
+	// add all headers
+		for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
+			 it != _headers.end(); ++it) {
+			response += it->first + ": " + it->second + "\r\n";
+		}
+		
+		response += "\r\n" + _body;
+		return response;
 }
