@@ -1,6 +1,10 @@
 #include "ParseConfig.hpp"
 #include "LocationConfig.hpp"
 #include "../utils/ParserUtils.hpp"
+#include <pwd.h>
+#include <unistd.h>
+#include <limits.h>
+#include <stdlib.h>
 
 
 ParseConfig::ParseConfig() : _pos(0) {}
@@ -52,46 +56,53 @@ bool parseBodySize(const std::string& sizeStr, size_t& result, std::string& erro
 }
 
 void parseCgiPass(std::string &value, LocationConfig& location){
-	std::vector<std::string> cgitoken = ParserUtils::split(value, ' ');
-	
-	if (cgitoken.size() == 1) {
-		if (!ValidationUtils::isValidPath(value))
-			throw ParseConfigException("Invalid CGI pass path - must be an absolute path", "cgi_pass");
-		location.addCgiPass(".*", value); // default extension for all files
-	} 
-	else if (cgitoken.size() >= 2) {
-		// multi cgi
-		std::string extension = cgitoken[0];
-		std::string interpreter;
-		for (size_t j = 1; j < cgitoken.size(); ++j) {
-			if (!interpreter.empty()) interpreter += " ";
-			interpreter += cgitoken[j];
-		}
-		if (!ValidationUtils::isValidPath(interpreter))
-			throw ParseConfigException("Invalid CGI interpreter path - must be an absolute path", "cgi_pass");
-		location.addCgiPass(extension, interpreter);
-	}
-	else
-		throw ParseConfigException("Invalid cgi_pass format", "cgi_pass");
+    std::vector<std::string> cgitoken = ParserUtils::split(value, ' ');
+    
+    if (cgitoken.size() == 1) {
+        // Single value: interpreter path (allow <user> and relative)
+        // Use current parser instance helpers via a lambda that mirrors methods
+        // Note: We cannot access ParseConfig members here; so expect value already trimmed.
+        // We'll expand <user> with getenv/getpwuid and resolve relative to current working dir of process.
+        // However, to keep consistent with server root handling, expect caller to pass through expand + resolve.
+        // As a fallback, only validate absolute here.
+        if (!ValidationUtils::isValidPath(value))
+            throw ParseConfigException("Invalid CGI pass path - must be an absolute path", "cgi_pass");
+        location.addCgiPass(".*", value); // default extension for all files
+    } 
+    else if (cgitoken.size() >= 2) {
+        // multi cgi: first token is extension, the rest is interpreter path (possibly with args)
+        std::string extension = cgitoken[0];
+        std::string interpreter;
+        for (size_t j = 1; j < cgitoken.size(); ++j) {
+            if (!interpreter.empty()) interpreter += " ";
+            interpreter += cgitoken[j];
+        }
+        if (!ValidationUtils::isValidPath(interpreter))
+            throw ParseConfigException("Invalid CGI interpreter path - must be an absolute path", "cgi_pass");
+        location.addCgiPass(extension, interpreter);
+    }
+    else
+        throw ParseConfigException("Invalid cgi_pass format", "cgi_pass");
 }
 
 void parseCgiParam(Directive &directive, LocationConfig& location, std::vector<std::string> directives, int i)
 {
-	std::vector<std::string> parts = ParserUtils::split(directive.value, ' ');
-			if (parts.size() < 2) {
-				throw ParseConfigException("' - cgi_param requires a name and a value",
-										"cgi_param", directives[i]);
-			}
-			std::string paramName = parts[0];
-			std::string paramValue = parts[1];
-			for (size_t j = 2; j < parts.size(); ++j) {
-				paramValue += " " + parts[j];
-			}
-			if (!ValidationUtils::isValidPath(paramValue)) {
-				throw ParseConfigException("' - Invalid CGI param path, it must be an absolute path.",
-										"cgi_param", directives[i]);
-			}
-			location.addCgiParam(paramName, paramValue);
+    std::vector<std::string> parts = ParserUtils::split(directive.value, ' ');
+            if (parts.size() < 2) {
+                throw ParseConfigException("' - cgi_param requires a name and a value",
+                                            "cgi_param", directives[i]);
+            }
+            std::string paramName = parts[0];
+            std::string paramValue = parts[1];
+            for (size_t j = 2; j < parts.size(); ++j) {
+                paramValue += " " + parts[j];
+            }
+            // Note: paramValue is usually a path (e.g., PYTHONPATH). It must be absolute.
+            if (!ValidationUtils::isValidPath(paramValue)) {
+                throw ParseConfigException("' - Invalid CGI param path, it must be an absolute path.",
+                                            "cgi_param", directives[i]);
+            }
+            location.addCgiParam(paramName, paramValue);
 }
 
 std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
@@ -124,6 +135,48 @@ std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
 		pos = endPos;
 	}
 	return blocks;
+}
+
+// Expand /home/<user>/... to /home/$(USER)/...
+std::string ParseConfig::expandLocalUserPath(const std::string& path) const {
+    const std::string marker = "/home/<user>/";
+    std::string::size_type pos = path.find(marker);
+    if (pos == std::string::npos)
+        return path;
+
+    std::string username;
+    const char* envUser = std::getenv("USER");
+    if (envUser && *envUser) {
+        username = envUser;
+    } else {
+        struct passwd* pw = getpwuid(getuid());
+        if (pw && pw->pw_name) username = pw->pw_name;
+    }
+    if (username.empty())
+        return path;
+
+    std::string expanded = path;
+    expanded.replace(pos, marker.size(), std::string("/home/") + username + "/");
+    return expanded;
+}
+
+// If path starts with '/', return it; otherwise join with _configDir and canonicalize.
+// If canonicalization fails, return the joined path (still absolute) to be validated later.
+std::string ParseConfig::resolvePathRelativeToConfig(const std::string& path) const {
+    if (!path.empty() && path[0] == '/')
+        return path;
+    // Join with config dir
+    std::string base = _configDir.empty() ? std::string(".") : _configDir;
+    std::string joined = base;
+    if (!joined.empty() && joined[joined.size() - 1] != '/')
+        joined += "/";
+    joined += path;
+    // Try to canonicalize
+    char buf[PATH_MAX];
+    char* rp = realpath(joined.c_str(), buf);
+    if (rp)
+        return std::string(buf);
+    return joined; // fallback
 }
 
 Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) {
@@ -159,20 +212,52 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
     	if (directive.name.empty())
 			continue;
 		try {
-			if (directive.name == "root") {
-				if (!ValidationUtils::isValidPath(directive.value))
-					throw ParseConfigException("' - Invalid root path, it must be an absolut path.", "root", directives[i]);
-				location.setRoot(directive.value);
-			}
+				if (directive.name == "root") {
+	                // Expand <user> and allow relative paths resolved from config dir
+	                std::string value = expandLocalUserPath(ParserUtils::trim(directive.value));
+	                value = resolvePathRelativeToConfig(value);
+	                if (!ValidationUtils::isValidPath(value))
+	                    throw ParseConfigException("' - Invalid root path, it must be an absolut path.", "root", directives[i]);
+	                location.setRoot(value);
+	            }
 			else if (directive.name == "index") {
 				location.setIndex(directive.value);
 			}
-			else if (directive.name == "cgi_pass") {
-				parseCgiPass(directive.value, location);
-			}
-			else if (directive.name == "cgi_param") {
-				parseCgiParam(directive, location, directives, i);
-			}
+            else if (directive.name == "cgi_pass") {
+                // Support relative interpreter paths and <user> expansion
+                std::vector<std::string> parts = ParserUtils::split(ParserUtils::trim(directive.value), ' ');
+                if (parts.size() == 1) {
+                    std::string interp = expandLocalUserPath(parts[0]);
+                    interp = resolvePathRelativeToConfig(interp);
+                    directive.value = interp;
+                } else if (parts.size() >= 2) {
+                    std::string extension = parts[0];
+                    std::string interpreter;
+                    for (size_t j = 1; j < parts.size(); ++j) {
+                        if (!interpreter.empty()) interpreter += " ";
+                        interpreter += parts[j];
+                    }
+                    interpreter = expandLocalUserPath(interpreter);
+                    interpreter = resolvePathRelativeToConfig(interpreter);
+                    directive.value = extension + std::string(" ") + interpreter;
+                }
+                parseCgiPass(directive.value, location);
+            }
+            else if (directive.name == "cgi_param") {
+                // Support relative param paths and <user> expansion
+                std::vector<std::string> parts = ParserUtils::split(ParserUtils::trim(directive.value), ' ');
+                if (parts.size() >= 2) {
+                    std::string paramName = parts[0];
+                    std::string paramValue = parts[1];
+                    for (size_t j = 2; j < parts.size(); ++j) {
+                        paramValue += " " + parts[j];
+                    }
+                    paramValue = expandLocalUserPath(paramValue);
+                    paramValue = resolvePathRelativeToConfig(paramValue);
+                    directive.value = paramName + std::string(" ") + paramValue;
+                }
+                parseCgiParam(directive, location, directives, i);
+            }
 			else if (directive.name == "client_max_body_size") {
 				size_t bodySize;
 				std::string errorDetail;
@@ -273,12 +358,14 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 			directive.value = ParserUtils::getInBetween(line, "server_name", ";");
 			server.setServerName(ParserUtils::trim(directive.value));
 		}
-		else if (ParserUtils::startsWith(line, "root")){
-			directive.value = ParserUtils::getInBetween(line, "root", ";");
-			if (!ValidationUtils::isValidPath(directive.value))
-				throw ParseConfigException("Location : Invalid root path", "root");
-			server.setRoot(ParserUtils::trim(directive.value));
-		}
+			else if (ParserUtils::startsWith(line, "root")){
+				directive.value = ParserUtils::getInBetween(line, "root", ";");
+				std::string value = expandLocalUserPath(ParserUtils::trim(directive.value));
+				value = resolvePathRelativeToConfig(value);
+				if (!ValidationUtils::isValidPath(value))
+					throw ParseConfigException("Location : Invalid root path", "root");
+				server.setRoot(value);
+			}
 		else if (ParserUtils::startsWith(line,"index")){
 			directive.value = ParserUtils::getInBetween(line, "index", ";");
 			server.setIndex(ParserUtils::trim(directive.value));
@@ -322,13 +409,22 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 }
 
 std::vector<ServerConfig> ParseConfig::parse(const std::string& configPath){
-	std::ifstream file(configPath.c_str());
-	if (!file.is_open()) {
-		throw std::runtime_error("Error: Cannot open config file: " + configPath);
-	}
-	std::stringstream buffer;
-	buffer << file.rdbuf();
-	_configContent = buffer.str(); //convert stream to str
+		std::ifstream file(configPath.c_str());
+		if (!file.is_open()) {
+			throw std::runtime_error("Error: Cannot open config file: " + configPath);
+		}
+		std::stringstream buffer;
+		buffer << file.rdbuf();
+		_configContent = buffer.str(); //convert stream to str
+		// Remember directory of the config file to resolve relative paths securely
+		std::string::size_type slash = configPath.find_last_of('/');
+		if (slash == std::string::npos) {
+			_configDir = ".";
+		} else if (slash == 0) {
+			_configDir = "/";
+		} else {
+			_configDir = configPath.substr(0, slash);
+		}
 	std::vector<ServerConfig> servers;
 	std::vector<std::string> serverBlock = parseBlock("server");
 	for (size_t i = 0; i < serverBlock.size(); ++i){

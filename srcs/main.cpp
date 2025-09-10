@@ -19,7 +19,7 @@ int main(int argc, char** argv)
 		return 1;
 	}
     try {
-        std::string configPath = (argc > 1) ? argv[1] : "config/default.conf";
+        std::string configPath = (argc > 1) ? argv[1] : "linux.conf";
         
         LOG("Loading config from: " + configPath);
         

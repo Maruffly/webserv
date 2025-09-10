@@ -27,9 +27,15 @@ struct Directive {
 	std::string value;
 };
 class ParseConfig {
-		private:
-			std::string _configContent;
-			size_t 		_pos;				
+			private:
+					std::string _configContent;
+					size_t 		_pos;
+					std::string _configDir; // directory of the loaded config file
+
+					// Expand placeholders like /home/<user>/... to the current username
+					std::string expandLocalUserPath(const std::string& path) const;
+					// Resolve relative path against _configDir and return canonical absolute path if possible
+					std::string resolvePathRelativeToConfig(const std::string& path) const;
 
 		public:
 			ServerConfig server;
