@@ -123,6 +123,29 @@ const std::map<std::string, std::string>& Request::getHeaders() const {
         return _headers;
     }
 
+void Request::parseCookies(const std::string& cookieHeader) {
+    std::vector<std::string> cookies = ParserUtils::split(cookieHeader, ';');
+    
+    for (size_t i = 0; i < cookies.size(); ++i) {
+        std::string cookie = ParserUtils::trim(cookies[i]);
+        size_t equalsPos = cookie.find('=');
+        
+        if (equalsPos != std::string::npos) {
+            std::string name = cookie.substr(0, equalsPos);
+            std::string value = cookie.substr(equalsPos + 1);
+            _cookies[ParserUtils::trim(name)] = ParserUtils::trim(value);
+        }
+    }
+}
+
+std::string Request::getCookie(const std::string& name) const {
+    std::map<std::string, std::string>::const_iterator it = _cookies.find(name);
+    if (it != _cookies.end()) {
+        return it->second;
+    }
+    return "";
+}
+
 void Request::print() const 
 {
 	std::cout << "=== HTTP REQUEST ===" << std::endl;

@@ -6,43 +6,39 @@
 #include "../cgi/CgiHandler.hpp"
 
 void epollManager::cleanupIdleConnections() {
-    time_t now = time(NULL);
-    
-    // Nettoyer seulement toutes les 5 secondes
-    if (now - _lastCleanup < CLEANUP_INTERVAL) {
-        return;
-    }
-    _lastCleanup = now;
-    
-    LOG("Checking for idle connections...");
-    int closedCount = 0;
-    
-    std::map<int, std::string>::iterator bufIt = _clientBuffers.begin();
-    while (bufIt != _clientBuffers.end()) {
-        int clientFd = bufIt->first;
-        
-        // Vérifier si le client existe dans les connexions
-        std::map<int, ClientConnection>::iterator connIt = _clientConnections.find(clientFd);
-        if (connIt != _clientConnections.end()) {
-            double idleTime = difftime(now, connIt->second.lastActivity);
-            
-            if (idleTime > CONNECTION_TIMEOUT) {
-                LOG("Closing idle connection (fd: " + toString(clientFd) + 
-                    ", idle: " + toString(idleTime) + "s)");
-                closeClient(clientFd);
-                _clientConnections.erase(connIt);
-                std::map<int, std::string>::iterator toErase = bufIt++;
-                _clientBuffers.erase(toErase);
-                closedCount++;
-                continue;
-            }
-        }
-        bufIt++;
-    }
-    
-    if (closedCount > 0) {
-        LOG("Closed " + toString(closedCount) + " idle connections");
-    }
+	time_t now = time(NULL);
+
+	if (now - _lastCleanup < CLEANUP_INTERVAL) {
+		return;
+	}
+	_lastCleanup = now;
+	
+	LOG("Checking for idle connections...");
+	int closedCount = 0;
+
+	std::map<int, ClientConnection>::iterator connIt = _clientConnections.begin();
+	while (connIt != _clientConnections.end())
+	{
+		int clientFd = connIt->first;
+		double idleTime = difftime(now, connIt->second.lastActivity);
+		
+		if (idleTime > CONNECTION_TIMEOUT) {
+			LOG("Closing idle connection (fd: " + toString(clientFd) + 
+				", idle: " + toString(idleTime) + "s)");
+			closeClient(clientFd);
+			// clean struct 
+			std::map<int, ClientConnection>::iterator toErase = connIt++;
+			_clientConnections.erase(toErase);
+			_clientBuffers.erase(clientFd);
+			closedCount++;
+		}
+		else
+			++connIt;
+	}
+	
+	if (closedCount > 0) {
+		LOG("Closed " + toString(closedCount) + " idle connections");
+	}
 }
 
 bool epollManager::isCgiRequest(const std::string& uri) const {
@@ -75,8 +71,6 @@ epollManager::epollManager(int serverSocket, ServerConfig& config)
 	LOG("Server socket added to epoll");
 }
 
-
-
 epollManager::~epollManager()
 {
 	if (_epollFd != -1)
@@ -84,11 +78,11 @@ epollManager::~epollManager()
 
 	// close clients connections
 	std::map<int, std::string>::iterator bufIt;
-    for (bufIt = _clientBuffers.begin(); bufIt != _clientBuffers.end(); ++bufIt) {
-        close(bufIt->first);
-    }
-    _clientBuffers.clear();
-    _clientConnections.clear();
+	for (bufIt = _clientBuffers.begin(); bufIt != _clientBuffers.end(); ++bufIt) {
+		close(bufIt->first);
+	}
+	_clientBuffers.clear();
+	_clientConnections.clear();
 }
 
 
@@ -346,12 +340,12 @@ void	epollManager::handleNewConnection()
 	_clientBuffers[clientSocket] = ""; // init empty buffer
 
 	ClientConnection newConn;
-    newConn.fd = clientSocket;
-    newConn.lastActivity = time(NULL);
-    newConn.isReading = false;
-    
-    _clientConnections[clientSocket] = newConn;
-    _clientBuffers[clientSocket] = "";
+	newConn.fd = clientSocket;
+	newConn.lastActivity = time(NULL);
+	newConn.isReading = false;
+	
+	_clientConnections[clientSocket] = newConn;
+	_clientBuffers[clientSocket] = "";
 }
 
 
@@ -379,10 +373,10 @@ void epollManager::sendErrorResponse(int clientFd, int code, const std::string& 
 void epollManager::handleClientData(int clientFd) 
 {
 	 std::map<int, ClientConnection>::iterator it = _clientConnections.find(clientFd);
-    if (it != _clientConnections.end()) {
-        it->second.lastActivity = time(NULL);
-        it->second.isReading = true;
-    }
+	if (it != _clientConnections.end()) {
+		it->second.lastActivity = time(NULL);
+		it->second.isReading = true;
+	}
 	char buffer[BUFFER_SIZE];
 	ssize_t bytesRead;
 
@@ -415,26 +409,24 @@ void epollManager::handleClientData(int clientFd)
 					
 					// Gestion d'erreur sur l'envoi
 					if (send(clientFd, responseStr.c_str(), responseStr.length(), 0) == -1) 
-						ERROR("Failed to send response to client " + toString(clientFd));
-					else{
-						LOG("Response sent to client " + toString(clientFd));
-						if (!isCgiRequest(request.getUri())) {
-							closeClient(clientFd);
-						}
-					}
+                    {
+                        ERROR("Failed to send response to client " + toString(clientFd));
+                        closeClient(clientFd);
+                        return;
+                    }
+                    else
+                        LOG("Response sent to client " + toString(clientFd));
 				} 
 				else 
 				{
 					LOG("Incomplete request from client " + toString(clientFd));
 					sendErrorResponse(clientFd, 400, "Bad Request");
-					closeClient(clientFd);
 				}
 			} 
 			catch (const std::exception& e) 
 			{
 				ERROR("Request parsing failed: " + std::string(e.what()));
 				sendErrorResponse(clientFd, 400, "Bad Request");
-				closeClient(clientFd);
 			}
 			_clientBuffers[clientFd].clear();
 			closeClient(clientFd);
@@ -452,7 +444,7 @@ void epollManager::handleClientData(int clientFd)
 		}
 	}
 	if (it != _clientConnections.end())
-        it->second.isReading = false;
+		it->second.isReading = false;
 }
 
 
@@ -461,47 +453,48 @@ void epollManager::closeClient(int clientFd)
 	epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, NULL);
 	close(clientFd);
 	_clientBuffers.erase(clientFd);
+	_clientConnections.erase(clientFd);
 	LOG("Connection closed for client " + toString(clientFd));
 }
 
 /* void cleanupIdleConnections() {
-    time_t now = time(NULL);
-    
-    for (auto it = _clientConnections.begin(); it != _clientConnections.end(); ) {
-        ClientConnection& client = it->second;
-        double idle = difftime(now, client.lastActivity);
-        
-        if (client.buffer.empty() && idle > CONNECTION_TIMEOUT) {
-            // Connexion établie mais aucune donnée reçue
-            closeClient(client.fd);
-            it = _clientConnections.erase(it);
-        }
-        else if (!client.buffer.empty() && idle > READ_TIMEOUT) {
-            // Données reçues mais requête incomplète
-            closeClient(client.fd);
-            it = _clientConnections.erase(it);
-        }
-        else if (idle > KEEP_ALIVE_TIMEOUT) {
-            // Connexion keep-alive inactive
-            closeClient(client.fd);
-            it = _clientConnections.erase(it);
-        }
-        else {
-            ++it;
-        }
-    }
+	time_t now = time(NULL);
+	
+	for (auto it = _clientConnections.begin(); it != _clientConnections.end(); ) {
+		ClientConnection& client = it->second;
+		double idle = difftime(now, client.lastActivity);
+		
+		if (client.buffer.empty() && idle > CONNECTION_TIMEOUT) {
+			// Connexion établie mais aucune donnée reçue
+			closeClient(client.fd);
+			it = _clientConnections.erase(it);
+		}
+		else if (!client.buffer.empty() && idle > READ_TIMEOUT) {
+			// Données reçues mais requête incomplète
+			closeClient(client.fd);
+			it = _clientConnections.erase(it);
+		}
+		else if (idle > KEEP_ALIVE_TIMEOUT) {
+			// Connexion keep-alive inactive
+			closeClient(client.fd);
+			it = _clientConnections.erase(it);
+		}
+		else {
+			++it;
+		}
+	}
 }
 void checkTimeouts() {
-    time_t now = time(NULL);
-    for (auto it = _clientConnections.begin(); it != _clientConnections.end(); ) {
-        if (now - it->second.lastActivity > CONNECTION_TIMEOUT) {
-            LOG("Closing idle connection: " + toString(it->first));
-            closeClient(it->first);
-            it = _clientConnections.erase(it);
-        } else {
-            ++it;
-        }
-    }
+	time_t now = time(NULL);
+	for (auto it = _clientConnections.begin(); it != _clientConnections.end(); ) {
+		if (now - it->second.lastActivity > CONNECTION_TIMEOUT) {
+			LOG("Closing idle connection: " + toString(it->first));
+			closeClient(it->first);
+			it = _clientConnections.erase(it);
+		} else {
+			++it;
+		}
+	}
 } */
 
 void epollManager::run() 
@@ -511,7 +504,7 @@ void epollManager::run()
 	INFO("Starting epoll event loop...");
 
 	while (true) {
-		int numEvents = epoll_wait(_epollFd, events, MAX_EVENTS, -1);
+		int numEvents = epoll_wait(_epollFd, events, MAX_EVENTS, 1000);
 		if (numEvents == -1) {
 			if (errno == EINTR) continue;
 			ERROR("epoll_wait failed");

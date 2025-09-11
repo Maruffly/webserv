@@ -10,6 +10,8 @@ class	Response
 		std::map<std::string, std::string> _headers;
 		std::string _statusLine;
 		int _statusCode;
+		std::map<std::string, std::string> _cookies;
+
 	public:
 		const std::map<std::string, std::string>& getHeaders() const;
 		Response();
