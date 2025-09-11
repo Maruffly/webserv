@@ -94,6 +94,7 @@ void readParseCGI(int pipe_out[2], int pid, Response& response){
     	&& response.getHeaders().find("content-type") == response.getHeaders().end())
     		response.setHeader("Content-Type", "text/html");
 }
+
 std::string chooseInterpreter(const std::string& scriptPath, const std::string& defaultInterpreter) {
 	std::string ext;
 	size_t dotPos = scriptPath.find_last_of('.');
