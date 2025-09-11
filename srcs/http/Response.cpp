@@ -26,7 +26,8 @@ void Response::setBody(const std::string& body)
 {
 	_body = body;
 	// dynamic content length
-	setHeader("Content-Length", toString(_body.length()));
+	if (_headers.find("Content-Length") == _headers.end())
+        setHeader("Content-Length", toString(_body.length()));
 	//_response += "\r\n" + _body;
 }
 

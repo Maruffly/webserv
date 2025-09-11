@@ -37,8 +37,12 @@
 #define BUFFER_SIZE 1024
 #define MAX_EVENTS 64
 #define MAX_REQUEST_SIZE 8192
+#define MAX_CLIENTS 100 
+#define CONNECTION_TIMEOUT 30
+#define READ_TIMEOUT 15
+#define KEEP_ALIVE_TIMEOUT 10 
+#define CLEANUP_INTERVAL 5
 
-// debug
 template <typename T>
 std::string toString(const T &value) 
 {

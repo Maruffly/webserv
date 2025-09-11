@@ -5,14 +5,17 @@
 #include "../http/Request.hpp"
 #include "../utils/Utils.hpp"
 #include "../config/ServerConfig.hpp"
+#include "ClientConnection.hpp"
 
 class	epollManager
 {
 	private:
-		int							_serverSocket;
-		int							_epollFd;
-		std::map<int, std::string>	_clientBuffers;
-		const ServerConfig& 		_config;
+		int								_serverSocket;
+		int								_epollFd;
+		std::map<int, std::string>		_clientBuffers;
+		std::map<int, ClientConnection> _clientConnections;
+		ServerConfig& 			_config;
+		time_t _lastCleanup;
 
 		void		handleNewConnection();
 		void		handleClientData(int clientFd);
@@ -24,9 +27,9 @@ class	epollManager
 		std::string resolveFilePath(const std::string& uri) const;
 		const LocationConfig* findLocationConfig(const std::string& uri) const;
 
-
 	public:
-		epollManager(int serverSocket, const ServerConfig& config);
+		void cleanupIdleConnections();
+		epollManager(int serverSocket, ServerConfig& config);
 		// epollManager(int serverSocket);
 		~epollManager();
 
