@@ -5,6 +5,25 @@
 ServerConfig::ServerConfig(){}
 ServerConfig::~ServerConfig(){}
 
+// Definition manquante qui provoquait une erreur de l’éditeur de liens
+ServerConfig ServerConfig::operator=(const ServerConfig& src)
+{
+    if (this != &src)
+    {
+        this->_serverName = src._serverName;
+        this->_host = src._host;
+        this->_port = src._port;
+        this->_root = src._root;
+        this->_index = src._index;
+        this->_listen = src._listen;
+        this->_clientMax = src._clientMax;
+        this->_autoindex = src._autoindex;
+        this->_errorPages = src._errorPages;
+        this->_locations = src._locations;
+    }
+    return *this;
+}
+
 void ServerConfig::setServerName(const std::string& serverName){
 	if (serverName.size() > MAXLEN)
 		throw ParseConfigException("Invalid name size", "server_name");
