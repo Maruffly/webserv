@@ -31,6 +31,10 @@ void Response::setBody(const std::string& body)
 	//_response += "\r\n" + _body;
 }
 
+size_t Response::getBodyLength() const {
+    return _body.length();
+}
+
 
 std::string	Response::getResponse() const
 {

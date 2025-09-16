@@ -22,6 +22,11 @@ class LocationConfig {
 			std::map<std::string, std::string>	_cgiParams;
 			std::map<std::string, std::string>	_cgiPass;
 
+			// Redirection (return <code> <url>)
+			bool _hasReturn;
+			int  _returnCode;
+			std::string _returnUrl;
+
 	public:
 			int lineOffset;
 			LocationConfig();
@@ -53,4 +58,10 @@ class LocationConfig {
 			std::string getCgiInterpreter(const std::string& extension) const;
    			bool isCgiRequest(const std::string& uri) const;
 			void printConfigLocation() const;
+
+			// Redirection API
+			void setReturn(int code, const std::string& url);
+			bool hasReturn() const;
+			int  getReturnCode() const;
+			const std::string& getReturnUrl() const;
 };

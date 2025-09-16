@@ -36,6 +36,8 @@ class ServerConfig {
 			void addErrorPage(int errorCode, const std::string& path);
 			void addLocation(const LocationConfig& location);
 			const std::vector<LocationConfig>& getLocations() const;
+			const std::map<int, std::string>& getErrorPages() const;
+			std::string getErrorPagePath(int code) const;
 			const std::string& getServerName();
 			const std::string& getHost();
 			int getPort();

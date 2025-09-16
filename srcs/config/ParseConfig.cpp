@@ -290,6 +290,17 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 					location.addAllowedMethod(methods[j]);
 					}
 			}
+			else if (directive.name == "return") {
+				// Syntaxe: return <code> <url>;
+				std::vector<std::string> parts = ParserUtils::split(directive.value, ' ');
+				if (parts.size() < 2)
+					throw ParseConfigException("return requires <code> <url>", "return", directives[i]);
+				int code = std::atoi(parts[0].c_str());
+				if (code < 300 || code > 399)
+					throw ParseConfigException("return code must be a 3xx code", "return", directives[i]);
+				std::string url = parts[1];
+				location.setReturn(code, url);
+			}
 			else
 				throw ParseConfigException("Unknown location directive: " + directive.name, directives[i]);
 	}

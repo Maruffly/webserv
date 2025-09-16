@@ -1,6 +1,6 @@
 #include "LocationConfig.hpp"
 
-LocationConfig::LocationConfig(): _clientMax(0), _autoindex(false) {}
+LocationConfig::LocationConfig(): _clientMax(0), _autoindex(false), _hasReturn(false), _returnCode(0) {}
 
 LocationConfig::~LocationConfig(){}
 
@@ -164,5 +164,14 @@ void LocationConfig::printConfigLocation() const {
 		}
 		std::cout << std::endl;
 	}
+
+	if (_hasReturn) {
+		std::cout << "  Return: " << _returnCode << " " << _returnUrl << std::endl;
+	}
 	std::cout << "  ===========================" << std::endl;
 }
+
+void LocationConfig::setReturn(int code, const std::string& url) { _hasReturn = true; _returnCode = code; _returnUrl = url; }
+bool LocationConfig::hasReturn() const { return _hasReturn; }
+int  LocationConfig::getReturnCode() const { return _returnCode; }
+const std::string& LocationConfig::getReturnUrl() const { return _returnUrl; }

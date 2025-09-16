@@ -21,9 +21,15 @@ class epollManager
         std::map<int, std::vector<ServerConfig> > _serverGroups;    // listen fd -> group of ServerConfig (first is default)
         std::map<int, ServerConfig> _serverForClientFd;             // mapping client fd -> selected ServerConfig
 
+        // CGI pipe fd -> client fd
+        std::map<int,int> _cgiOutToClient;
+        std::map<int,int> _cgiInToClient;
+
         void handleNewConnection(int listenFd);
         void handleClientRead(int clientFd, uint32_t events);
         void handleClientWrite(int clientFd, uint32_t events);
+        void handleCgiOutEvent(int pipeFd, uint32_t events);
+        void handleCgiInEvent(int pipeFd, uint32_t events);
         void closeClient(int clientFd);
         void sendErrorResponse(int clientFd, int code, const std::string& message);
 
@@ -47,6 +53,8 @@ class epollManager
                                    size_t& savedCount, bool& anyCreated, std::string& lastSavedPath);
 
         void armWriteEvent(int clientFd, bool enable);
+        bool startCgiFor(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location);
+        void finalizeCgiFor(int clientFd);
 
     public:
         void cleanupIdleConnections();

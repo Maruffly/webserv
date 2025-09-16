@@ -43,6 +43,7 @@
 #define READ_TIMEOUT 15
 #define KEEP_ALIVE_TIMEOUT 10 
 #define CLEANUP_INTERVAL 5
+#define CGI_TIMEOUT 10
 
 template <typename T>
 std::string toString(const T &value) 

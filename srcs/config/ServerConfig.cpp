@@ -124,7 +124,17 @@ void ServerConfig::addErrorPage(int errorCode, const std::string& path) {
 }
 
 const std::vector<LocationConfig>& ServerConfig::getLocations() const {
-	return _locations;
+    return _locations;
+}
+
+const std::map<int, std::string>& ServerConfig::getErrorPages() const {
+    return _errorPages;
+}
+
+std::string ServerConfig::getErrorPagePath(int code) const {
+    std::map<int, std::string>::const_iterator it = _errorPages.find(code);
+    if (it != _errorPages.end()) return it->second;
+    return std::string();
 }
 
 void ServerConfig::printConfig() const {

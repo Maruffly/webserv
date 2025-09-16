@@ -7,7 +7,7 @@ Un seul select/poll/epoll pour toutes les I/O, y compris les sockets d’écoute
 Une seule lecture et une seule écriture par client et par itération de la boucle. Le recv en boucle n’est pas conforme.
 Aucune lecture/écriture hors poll/epoll. Gérer EPOLLIN/EPOLLOUT, les écritures partielles et la mise en tampon.
 Interdiction de tester errno après read/write. L’état vient de poll.
-+++
+
 Multi-serveurs / multi-ports:
 Écoute simultanée de plusieurs ports sur une seule boucle.
 Sélection de serveur par Host/server_name avec serveur par défaut (premier pour host:port).
@@ -19,7 +19,7 @@ Pages d’erreur custom (error_page) non servies (fallback seulement).
 Méthode HEAD absente.
 Écritures partielles non gérées (suppose un seul send).
 Index par location ignoré (utilise seulement l’index serveur pour répertoires).
-
++++
 CGI:
 Absence de chdir vers le dossier du script.
 Pas de timeout/kill pour CGI bloqué.

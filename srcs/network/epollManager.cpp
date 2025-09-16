@@ -5,6 +5,8 @@
 #include "../utils/Utils.hpp"
 #include "../utils/ParserUtils.hpp"
 #include "../cgi/CgiHandler.hpp"
+#include <signal.h>
+#include <sys/wait.h>
 #include <fstream>
 
 epollManager::epollManager(const std::vector<int>& listenFds, const std::vector< std::vector<ServerConfig> >& serverGroups)
@@ -71,33 +73,51 @@ void epollManager::cleanupIdleConnections() {
         bufIt++;
     }
     if (closedCount > 0) LOG("Closed " + toString(closedCount) + " idle connections");
+
+    // CGI timeouts
+    for (std::map<int, ClientConnection>::iterator it = _clientConnections.begin(); it != _clientConnections.end(); ++it) {
+        ClientConnection& c = it->second;
+        if (c.cgiRunning && c.cgiStart && difftime(now, c.cgiStart) > CGI_TIMEOUT) {
+            if (c.cgiPid > 0) kill(c.cgiPid, SIGKILL);
+            if (c.cgiInFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiInFd, NULL); close(c.cgiInFd); _cgiInToClient.erase(c.cgiInFd); c.cgiInFd = -1; }
+            if (c.cgiOutFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiOutFd, NULL); close(c.cgiOutFd); _cgiOutToClient.erase(c.cgiOutFd); c.cgiOutFd = -1; }
+            c.cgiRunning = false;
+            sendErrorResponse(c.fd, 504, "Gateway Timeout");
+        }
+    }
 }
 
 void epollManager::handleNewConnection(int listenFd)
 {
     struct sockaddr_in clientAddress;
     socklen_t clientAddrLen = sizeof(clientAddress);
-    int clientSocket = accept(listenFd, (struct sockaddr*)&clientAddress, &clientAddrLen);
-    if (clientSocket == -1) return;
-    if (_clientBuffers.size() >= MAX_CLIENTS) { close(clientSocket); return; }
-    int flags = fcntl(clientSocket, F_GETFL, 0);
-    fcntl(clientSocket, F_SETFL, flags | O_NONBLOCK);
+    int clientSocket;
+    while ((clientSocket = accept(listenFd, (struct sockaddr*)&clientAddress, &clientAddrLen)) != -1) {
+        if (_clientBuffers.size() >= MAX_CLIENTS) { close(clientSocket); continue; }
+        int flags = fcntl(clientSocket, F_GETFL, 0);
+        fcntl(clientSocket, F_SETFL, flags | O_NONBLOCK);
 
-    struct epoll_event event;
-    event.events = EPOLLIN; // EPOLLOUT armed when needed
-    event.data.fd = clientSocket;
-    if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, clientSocket, &event) == -1) { close(clientSocket); return; }
+        struct epoll_event event;
+        event.events = EPOLLIN; // EPOLLOUT armed when needed
+        event.data.fd = clientSocket;
+        if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, clientSocket, &event) == -1) { close(clientSocket); continue; }
 
-    ClientConnection newConn;
-    newConn.fd = clientSocket;
-    newConn.listenFd = listenFd;
-    newConn.lastActivity = time(NULL);
-    newConn.isReading = false;
-    _clientConnections[clientSocket] = newConn;
-    _clientBuffers[clientSocket].clear();
-    // Default to first server of the group for this listen fd
-    if (_serverGroups.find(listenFd) != _serverGroups.end() && !_serverGroups[listenFd].empty())
-        _serverForClientFd[clientSocket] = _serverGroups[listenFd][0];
+        ClientConnection newConn;
+        newConn.fd = clientSocket;
+        newConn.listenFd = listenFd;
+        newConn.lastActivity = time(NULL);
+        newConn.isReading = false;
+        char ipbuf[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &clientAddress.sin_addr, ipbuf, INET_ADDRSTRLEN);
+        newConn.remoteAddr = ipbuf;
+        newConn.remotePort = ntohs(clientAddress.sin_port);
+        _clientConnections[clientSocket] = newConn;
+        _clientBuffers[clientSocket].clear();
+        // Default to first server of the group for this listen fd
+        if (_serverGroups.find(listenFd) != _serverGroups.end() && !_serverGroups[listenFd].empty())
+            _serverForClientFd[clientSocket] = _serverGroups[listenFd][0];
+    }
+    // EAGAIN acceptable when drained
 }
 
 bool epollManager::parseHeadersFor(int clientFd) {
@@ -152,6 +172,31 @@ bool epollManager::parseHeadersFor(int clientFd) {
     else if (conn.bodyType == BODY_CHUNKED) { conn.chunkBuffer.append(after); }
 
     conn.headersParsed = true;
+    // Select vhost according to Host header, defaulting to first
+    std::map<int, std::vector<ServerConfig> >::iterator git = _serverGroups.find(conn.listenFd);
+    if (git != _serverGroups.end()) {
+        const std::vector<ServerConfig>& group = git->second;
+        if (!group.empty()) {
+            std::string hostHeader;
+            if (conn.headers.find("host") != conn.headers.end()) hostHeader = conn.headers["host"];
+            // strip port if present
+            size_t colon = hostHeader.find(':');
+            std::string hostname = (colon == std::string::npos) ? hostHeader : hostHeader.substr(0, colon);
+            // trim
+            while (!hostname.empty() && (hostname[0]==' '||hostname[0]=='\t')) hostname.erase(0,1);
+            while (!hostname.empty() && (hostname[hostname.size()-1]==' '||hostname[hostname.size()-1]=='\t')) hostname.erase(hostname.size()-1);
+            const ServerConfig* chosen = &group[0];
+            if (!hostname.empty()) {
+                for (size_t i=0;i<group.size();++i) {
+                    if (!group[i].getServerName().empty() && group[i].getServerName() == hostname) {
+                        chosen = &group[i];
+                        break;
+                    }
+                }
+            }
+            _serverForClientFd[conn.fd] = *chosen;
+        }
+    }
     conn.state = (conn.bodyType == BODY_NONE) ? READY : READING_BODY;
     return true;
 }
@@ -274,7 +319,10 @@ bool epollManager::isMethodAllowed(const std::string& method, const std::string&
     if (location) {
         const std::vector<std::string>& allowedMethods = location->getAllowedMethods();
         if (!allowedMethods.empty()) {
-            return std::find(allowedMethods.begin(), allowedMethods.end(), method) != allowedMethods.end();
+            if (std::find(allowedMethods.begin(), allowedMethods.end(), method) != allowedMethods.end()) return true;
+            // Treat HEAD as allowed when GET is allowed
+            if (method == "HEAD" && std::find(allowedMethods.begin(), allowedMethods.end(), std::string("GET")) != allowedMethods.end()) return true;
+            return false;
         }
     }
     return true;
@@ -358,12 +406,34 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
     if (request.getVersion() != "HTTP/1.1" && request.getVersion() != "HTTP/1.0") { response.setStatus(505, "HTTP Version Not Supported"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("505 HTTP Version Not Supported","Unsupported HTTP version")); return response; }
     std::string method = request.getMethod(); std::string uri = request.getUri(); const LocationConfig* location = findLocationConfig(uri, config);
     if (!isMethodAllowed(method, uri, config)) { response.setStatus(405, "Method Not Allowed"); response.setHeader("Allow", buildAllowHeader(location)); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("405 Method Not Allowed","Method "+method+" not allowed")); return response; }
+
+    // Redirection (return 3xx) at location level
+    if (location && location->hasReturn()) {
+        int code = location->getReturnCode();
+        std::string url = location->getReturnUrl();
+        response.setStatus(code, (code==301?"Moved Permanently":(code==302?"Found":"Temporary Redirect")));
+        response.setHeader("Location", url);
+        response.setHeader("Content-Type", "text/html");
+        response.setBody(createHtmlResponse(toString(code) + " Redirect", "Redirecting to <a href=\"" + url + "\">" + url + "</a>"));
+        // Apply HEAD stripping below
+        goto finalize;
+    }
     if (method == "DELETE") { return handleDelete(request, location, config); }
     if (method == "POST") { return handlePost(request, location, config); }
     if (uri == "/" || uri == "/index.html") {
-        std::vector<std::string> indexList = ParserUtils::split(config.getIndex(), ' '); bool indexFound = false;
+        // Prefer location index if available for '/'
+        std::string indexConf = (location && !location->getIndex().empty()) ? location->getIndex() : config.getIndex();
+        std::vector<std::string> indexList = ParserUtils::split(indexConf, ' '); bool indexFound = false;
         for (size_t i = 0; i < indexList.size() && !indexFound; ++i) { std::string indexFile = ParserUtils::trim(indexList[i]); if (!indexFile.empty()) { std::string filePath = resolveFilePath("/" + indexFile, config); if (!filePath.empty() && fileExists(filePath)) { response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(indexFile)); response.setBody(readFileContent(filePath)); indexFound = true; } } }
-        if (!indexFound) { response.setStatus(404, "Not Found"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("404 Not Found","Index file not found")); }
+        if (!indexFound) {
+            // custom error page if configured
+            std::string ep = config.getErrorPagePath(404);
+            if (!ep.empty()) {
+                std::string p = resolveFilePath(ep, config);
+                if (!p.empty() && fileExists(p)) { response.setStatus(404, "Not Found"); response.setHeader("Content-Type", getContentType(p)); response.setBody(readFileContent(p)); goto finalize; }
+            }
+            response.setStatus(404, "Not Found"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("404 Not Found","Index file not found"));
+        }
     } else if (location && !location->getCgiPass().empty() && isCgiFile(uri, config.getLocations())) {
         std::string extension = getFileExtension(uri); const std::map<std::string, std::string>& cgiConfig = location->getCgiPass(); std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension); if (it == cgiConfig.end()) it = cgiConfig.find(".*"); if (it != cgiConfig.end()) { std::string interpreter = it->second; std::string scriptPath = location->getRoot() + uri; CgiHandler cgi; return cgi.execute(request, scriptPath, interpreter); }
         response.setStatus(400, "Bad Request"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("400 Bad Request","No CGI interpreter configured"));
@@ -373,14 +443,32 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
             if (isDirectory(filePath)) {
                 if (location && location->getAutoindex()) { response.setStatus(200, "OK"); response.setHeader("Content-Type","text/html"); response.setBody(generateDirectoryListing(filePath, uri)); }
                 else {
-                    std::vector<std::string> indexList = ParserUtils::split(config.getIndex(), ' '); bool indexFound = false;
+                    // Prefer location index if defined, else server index
+                    std::string indexConf = (location && !location->getIndex().empty()) ? location->getIndex() : config.getIndex();
+                    std::vector<std::string> indexList = ParserUtils::split(indexConf, ' '); bool indexFound = false;
                     for (size_t i = 0; i < indexList.size() && !indexFound; ++i) { std::string indexFile = ParserUtils::trim(indexList[i]); if (!indexFile.empty()) { std::string indexFilePath = filePath + "/" + indexFile; if (fileExists(indexFilePath)) { response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(indexFile)); response.setBody(readFileContent(indexFilePath)); indexFound = true; } } }
-                    if (!indexFound) { response.setStatus(403, "Forbidden"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("403 Forbidden","Directory listing forbidden")); }
+                    if (!indexFound) {
+                        std::string ep = config.getErrorPagePath(403);
+                        if (!ep.empty()) { std::string p = resolveFilePath(ep, config); if (!p.empty() && fileExists(p)) { response.setStatus(403, "Forbidden"); response.setHeader("Content-Type", getContentType(p)); response.setBody(readFileContent(p)); goto finalize; } }
+                        response.setStatus(403, "Forbidden"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("403 Forbidden","Directory listing forbidden"));
+                    }
                 }
             } else { response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(uri)); response.setBody(readFileContent(filePath)); }
-        } else { response.setStatus(404, "Not Found"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("404 Not Found","The requested URL was not found")); }
+        } else {
+            std::string ep = config.getErrorPagePath(404);
+            if (!ep.empty()) { std::string p = resolveFilePath(ep, config); if (!p.empty() && fileExists(p)) { response.setStatus(404, "Not Found"); response.setHeader("Content-Type", getContentType(p)); response.setBody(readFileContent(p)); goto finalize; } }
+            response.setStatus(404, "Not Found"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("404 Not Found","The requested URL was not found"));
+        }
     }
+finalize:
+    // Common headers
     response.setHeader("Connection", "close"); response.setHeader("Server", "webserv/1.0"); response.setHeader("Date", getCurrentDate());
+    // HEAD: same headers as GET, no body
+    if (method == "HEAD") {
+        size_t len = response.getBodyLength();
+        response.setHeader("Content-Length", toString(len));
+        response.setBody("");
+    }
     return response;
 }
 
@@ -403,7 +491,18 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
             for (std::map<std::string,std::string>::const_iterator it=conn.headers.begin(); it!=conn.headers.end(); ++it) { if (it->first == "transfer-encoding" || it->first == "content-length") continue; raw += it->first + ": " + it->second + "\r\n"; }
             if (!conn.body.empty()) raw += std::string("Content-Length: ") + toString(conn.body.size()) + "\r\n";
             raw += "\r\n"; raw += conn.body; Request request(raw);
-            if (request.isComplete()) { const ServerConfig& cfg = _serverForClientFd[clientFd]; Response response = createResponseForRequest(request, cfg); std::string responseStr = response.getResponse(); conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true); }
+            if (request.isComplete()) {
+                const ServerConfig& cfg = _serverForClientFd[clientFd];
+                // Detect CGI route early and start async CGI if needed
+                const LocationConfig* location = findLocationConfig(conn.uri, cfg);
+                bool wantsCgi = (location && !location->getCgiPass().empty() && isCgiFile(conn.uri, cfg.getLocations()));
+                if (wantsCgi) {
+                    if (!startCgiFor(clientFd, request, cfg, location)) { sendErrorResponse(clientFd, 500, "Internal Server Error"); }
+                } else {
+                    Response response = createResponseForRequest(request, cfg);
+                    std::string responseStr = response.getResponse(); conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
+                }
+            }
             else sendErrorResponse(clientFd, 400, "Bad Request");
         } catch (...) { sendErrorResponse(clientFd, 400, "Bad Request"); }
         return;
@@ -443,9 +542,16 @@ void epollManager::run()
         for (int i = 0; i < num; ++i) 
         {
             int fd = events[i].data.fd;
-            if (_listenSockets.find(fd) != _listenSockets.end()) handleNewConnection(fd);
-            else { if (events[i].events & EPOLLIN) handleClientRead(fd, events[i].events); 
-                if (events[i].events & EPOLLOUT) handleClientWrite(fd, events[i].events); }
+            if (_listenSockets.find(fd) != _listenSockets.end()) {
+                handleNewConnection(fd);
+            } else if (_cgiOutToClient.find(fd) != _cgiOutToClient.end()) {
+                handleCgiOutEvent(fd, events[i].events);
+            } else if (_cgiInToClient.find(fd) != _cgiInToClient.end()) {
+                handleCgiInEvent(fd, events[i].events);
+            } else {
+                if (events[i].events & EPOLLIN) handleClientRead(fd, events[i].events);
+                if (events[i].events & EPOLLOUT) handleClientWrite(fd, events[i].events);
+            }
         }
     }
 }
@@ -458,10 +564,175 @@ void epollManager::armWriteEvent(int clientFd, bool enable)
     epoll_ctl(_epollFd, EPOLL_CTL_MOD, clientFd, &ev);
 }
 
+static std::string dirnameOf(const std::string& path) {
+    size_t p = path.find_last_of('/');
+    if (p == std::string::npos) return std::string(".");
+    if (p == 0) return std::string("/");
+    return path.substr(0, p);
+}
+
+bool epollManager::startCgiFor(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location)
+{
+    ClientConnection &conn = _clientConnections[clientFd];
+    // Resolve script path
+    std::string scriptPath = location->getRoot().empty() ? (config.getRoot() + conn.uri) : (location->getRoot() + conn.uri.substr(location->getPath().size()));
+    if (!fileExists(scriptPath)) { sendErrorResponse(clientFd, 404, "Not Found"); return false; }
+    int pin[2], pout[2]; if (pipe(pin) == -1 || pipe(pout) == -1) { return false; }
+    // nonblocking
+    fcntl(pin[1], F_SETFL, fcntl(pin[1], F_GETFL, 0) | O_NONBLOCK);
+    fcntl(pout[0], F_SETFL, fcntl(pout[0], F_GETFL, 0) | O_NONBLOCK);
+
+    pid_t pid = fork(); if (pid == -1) { close(pin[0]); close(pin[1]); close(pout[0]); close(pout[1]); return false; }
+    if (pid == 0) {
+        // child
+        // chdir to script directory
+        std::string dir = dirnameOf(scriptPath);
+        chdir(dir.c_str());
+        // dup stdio
+        close(pin[1]); close(pout[0]);
+        dup2(pin[0], STDIN_FILENO); dup2(pout[1], STDOUT_FILENO); dup2(pout[1], STDERR_FILENO);
+        close(pin[0]); close(pout[1]);
+        // Build env
+        std::vector<std::string> envStore;
+        std::vector<char*> envp;
+        envStore.push_back("GATEWAY_INTERFACE=CGI/1.1");
+        envStore.push_back("SERVER_PROTOCOL=HTTP/1.1");
+        envStore.push_back("SERVER_SOFTWARE=webserv/1.0");
+        envStore.push_back(std::string("REQUEST_METHOD=") + request.getMethod());
+        envStore.push_back(std::string("SCRIPT_FILENAME=") + scriptPath);
+        envStore.push_back(std::string("SCRIPT_NAME=") + conn.uri);
+        envStore.push_back(std::string("REQUEST_URI=") + conn.uri);
+        envStore.push_back(std::string("QUERY_STRING=") + request.getUri().substr(request.getUri().find('?')==std::string::npos?request.getUri().size():request.getUri().find('?')+1));
+        envStore.push_back(std::string("SERVER_NAME=") + config.getServerName());
+        envStore.push_back(std::string("SERVER_PORT=") + toString(config.getPort()));
+        envStore.push_back(std::string("REMOTE_ADDR=") + conn.remoteAddr);
+        envStore.push_back(std::string("DOCUMENT_ROOT=") + config.getRoot());
+        if (request.getMethod() == "POST") {
+            envStore.push_back(std::string("CONTENT_LENGTH=") + toString(request.getBody().size()));
+            envStore.push_back(std::string("CONTENT_TYPE=") + request.getHeader("Content-Type"));
+        }
+        // HTTP_*
+        const std::map<std::string,std::string>& hdrs = request.getHeaders();
+        for (std::map<std::string,std::string>::const_iterator it = hdrs.begin(); it != hdrs.end(); ++it) {
+            std::string name = toUpperCase(replaceChars(it->first, "-", "_"));
+            envStore.push_back(std::string("HTTP_") + name + std::string("=") + it->second);
+        }
+        for (size_t i=0;i<envStore.size();++i) envp.push_back(strdup(envStore[i].c_str()));
+        envp.push_back(NULL);
+        // Args (interpreter optional)
+        std::vector<char*> args;
+        std::string ext = getFileExtension(scriptPath);
+        std::string interpreter;
+        const std::map<std::string,std::string>& cgiPass = location->getCgiPass();
+        std::map<std::string,std::string>::const_iterator it = cgiPass.find(ext);
+        if (it == cgiPass.end()) { std::map<std::string,std::string>::const_iterator it2 = cgiPass.find(".*"); if (it2 != cgiPass.end()) interpreter = it2->second; }
+        else interpreter = it->second;
+        if (!interpreter.empty()) { args.push_back(strdup(interpreter.c_str())); args.push_back(strdup(scriptPath.c_str())); }
+        else { args.push_back(strdup(scriptPath.c_str())); }
+        args.push_back(NULL);
+        if (!interpreter.empty()) { execve(interpreter.c_str(), args.data(), envp.data()); }
+        else { execve(scriptPath.c_str(), args.data(), envp.data()); }
+        // If execve fails
+        _exit(1);
+    }
+    // parent
+    close(pin[0]); close(pout[1]);
+    // register fds to epoll
+    struct epoll_event ev;
+    ev.data.fd = pout[0]; ev.events = EPOLLIN; epoll_ctl(_epollFd, EPOLL_CTL_ADD, pout[0], &ev);
+    _cgiOutToClient[pout[0]] = clientFd;
+    // Register input if there is a body to send
+    if (!conn.body.empty()) { ev.data.fd = pin[1]; ev.events = EPOLLOUT; epoll_ctl(_epollFd, EPOLL_CTL_ADD, pin[1], &ev); _cgiInToClient[pin[1]] = clientFd; }
+    conn.cgiRunning = true; conn.cgiPid = pid; conn.cgiInFd = pin[1]; conn.cgiOutFd = pout[0]; conn.cgiInOffset = 0; conn.cgiStart = time(NULL);
+    return true;
+}
+
+void epollManager::handleCgiOutEvent(int pipeFd, uint32_t events)
+{
+    (void)events;
+    int clientFd = _cgiOutToClient[pipeFd];
+    ClientConnection &conn = _clientConnections[clientFd];
+    char buf[BUFFER_SIZE]; ssize_t n = read(pipeFd, buf, sizeof(buf));
+    if (n > 0) { conn.cgiOutBuffer.append(buf, n); return; }
+    // EOF or error: finalize
+    epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiOutToClient.erase(pipeFd); conn.cgiOutFd = -1;
+    finalizeCgiFor(clientFd);
+}
+
+void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
+{
+    (void)events;
+    int clientFd = _cgiInToClient[pipeFd];
+    ClientConnection &conn = _clientConnections[clientFd];
+    if (conn.body.empty()) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; return; }
+    size_t remaining = conn.body.size() - conn.cgiInOffset;
+    if (remaining == 0) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; return; }
+    size_t toWrite = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining; ssize_t w = write(pipeFd, conn.body.data() + conn.cgiInOffset, toWrite);
+    if (w > 0) { conn.cgiInOffset += static_cast<size_t>(w); if (conn.cgiInOffset >= conn.body.size()) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; } }
+    else if (w == -1 && (errno != EAGAIN && errno != EWOULDBLOCK)) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; }
+}
+
+static void parseCgiOutputToResponse(const std::string& cgiOutput, Response& response)
+{
+    size_t headerEnd = cgiOutput.find("\r\n\r\n");
+    if (headerEnd != std::string::npos) {
+        std::string headersPart = cgiOutput.substr(0, headerEnd);
+        std::string body = cgiOutput.substr(headerEnd + 4);
+        std::vector<std::string> headerLines = ParserUtils::split(headersPart, '\n');
+        int statusCode = 200; std::string statusText = "OK";
+        for (size_t i = 0; i < headerLines.size(); ++i) {
+            if (!headerLines[i].empty() && headerLines[i][headerLines[i].size()-1] == '\r') headerLines[i].erase(headerLines[i].size()-1);
+            size_t colonPos = headerLines[i].find(':');
+            if (colonPos != std::string::npos) {
+                std::string name = ParserUtils::trim(headerLines[i].substr(0, colonPos));
+                std::string value = ParserUtils::trim(headerLines[i].substr(colonPos + 1));
+                if (toUpperCase(name) == "STATUS") {
+                    // Format: "Status: 302 Found"
+                    std::istringstream iss(value); iss >> statusCode; std::string rest; std::getline(iss, rest); if (!rest.empty() && rest[0]==' ') rest.erase(0,1); statusText = rest.empty()?"":rest;
+                } else {
+                    response.setHeader(name, value);
+                }
+            }
+        }
+        response.setStatus(statusCode, statusText.empty()?"OK":statusText);
+        response.setBody(body);
+        if (response.getHeaders().find("Content-Type") == response.getHeaders().end()) response.setHeader("Content-Type", "text/html");
+    } else {
+        response.setStatus(200, "OK"); response.setHeader("Content-Type", "text/html"); response.setBody(cgiOutput);
+    }
+}
+
+void epollManager::finalizeCgiFor(int clientFd)
+{
+    ClientConnection &conn = _clientConnections[clientFd];
+    // Reap child if finished
+    if (conn.cgiPid > 0) { int st; waitpid(conn.cgiPid, &st, WNOHANG); }
+    // Build response from CGI output
+    Response resp; parseCgiOutputToResponse(conn.cgiOutBuffer, resp);
+    // HEAD handling: keep headers, strip body but keep original length
+    if (conn.method == "HEAD") {
+        size_t len = resp.getBodyLength();
+        resp.setHeader("Content-Length", toString(len));
+        resp.setBody("");
+    }
+    std::string out = resp.getResponse();
+    conn.outBuffer = out; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
+    conn.cgiRunning = false; conn.cgiPid = -1; conn.cgiOutBuffer.clear();
+}
+
 void epollManager::closeClient(int clientFd)
 {
-    epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, NULL); 
-    close(clientFd); 
-    _clientBuffers.erase(clientFd); 
+    std::map<int, ClientConnection>::iterator it = _clientConnections.find(clientFd);
+    if (it != _clientConnections.end()) {
+        ClientConnection& c = it->second;
+        if (c.cgiRunning) {
+            if (c.cgiPid > 0) kill(c.cgiPid, SIGKILL);
+            if (c.cgiInFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiInFd, NULL); close(c.cgiInFd); _cgiInToClient.erase(c.cgiInFd); }
+            if (c.cgiOutFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiOutFd, NULL); close(c.cgiOutFd); _cgiOutToClient.erase(c.cgiOutFd); }
+        }
+    }
+    epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, NULL);
+    close(clientFd);
+    _clientBuffers.erase(clientFd);
     _clientConnections.erase(clientFd);
 }
