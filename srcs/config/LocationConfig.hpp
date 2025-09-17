@@ -22,6 +22,10 @@ class LocationConfig {
 			std::map<std::string, std::string>	_cgiParams;
 			std::map<std::string, std::string>	_cgiPass;
 
+			// Uploads configuration
+			std::string _uploadStore;   // base directory where to save uploads
+			bool        _uploadCreateDirs; // allow creating missing directories
+
 			// Redirection (return <code> <url>)
 			bool _hasReturn;
 			int  _returnCode;
@@ -58,6 +62,12 @@ class LocationConfig {
 			std::string getCgiInterpreter(const std::string& extension) const;
    			bool isCgiRequest(const std::string& uri) const;
 			void printConfigLocation() const;
+
+			// Uploads API
+			void setUploadStore(const std::string& path);
+			void setUploadCreateDirs(const std::string& onoff);
+			const std::string& getUploadStore() const;
+			bool getUploadCreateDirs() const;
 
 			// Redirection API
 			void setReturn(int code, const std::string& url);

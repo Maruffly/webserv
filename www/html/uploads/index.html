@@ -61,6 +61,29 @@
         </div>
         
         <p>This location is configured to handle larger file uploads up to 20MB, compared to the default 10MB limit for other locations.</p>
+
+        <h3>Upload a file (POST multipart/form-data)</h3>
+        <form id="uploadForm" action="/uploads/" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" required>
+            <button type="submit">Upload</button>
+        </form>
+        <pre id="result" style="background:#f6f8fa;padding:10px;border-radius:6px;overflow:auto;margin-top:10px"></pre>
+        <script>
+        const form = document.getElementById('uploadForm');
+        const result = document.getElementById('result');
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            result.textContent = 'Uploading...';
+            const data = new FormData(form);
+            try {
+                const r = await fetch('/uploads/', { method: 'POST', body: data });
+                const text = await r.text();
+                result.textContent = 'Status: ' + r.status + ' ' + (r.statusText||'') + '\n' + text;
+            } catch (err) {
+                result.textContent = 'Error: ' + err;
+            }
+        });
+        </script>
         
         <a href="/" class="back-link">← Back to Home</a>
     </div>

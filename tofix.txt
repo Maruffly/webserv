@@ -19,7 +19,7 @@ Pages d’erreur custom (error_page) non servies (fallback seulement).
 Méthode HEAD absente.
 Écritures partielles non gérées (suppose un seul send).
 Index par location ignoré (utilise seulement l’index serveur pour répertoires).
-+++
+
 CGI:
 Absence de chdir vers le dossier du script.
 Pas de timeout/kill pour CGI bloqué.
@@ -55,6 +55,7 @@ HEAD: mêmes en-têtes que GET, sans corps.
 CGI: scripts lents/bloqués, sorties sans headers, erreurs; timeouts indispensables.
 Host absent: utiliser serveur par défaut du socket d’écoute.
 
++++
 
 Plan D’Action
 

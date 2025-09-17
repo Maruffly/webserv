@@ -47,25 +47,32 @@ void ServerConfig::setIndex(const std::string& index){
 }
 
 void ServerConfig::setListen(const std::string& listenStr){
-	std::vector<std::string> token = ParserUtils::split(listenStr, ' ');
-	
-	std::string address = token[0];
-		if (address.find(':') != std::string::npos) {
-			// Format IP:PORT
-			std::vector<std::string> addrtoken = ParserUtils::split(address, ':');
-			if (addrtoken.size() == 2 || _port > 0) {
-				_host = addrtoken[0];
-				_port = std::atoi(addrtoken[1].c_str());
-				if (_port < 0 || _port > 65535)
-					throw ParseConfigException("Invalid port number : must be inferior to 65535", "autoindex");
-			}
-			} else {
-				// Format PORT only
-				_host = "0.0.0.0";
-				_port = std::atoi(address.c_str());
-				if (_port < 0 || _port > 65535)
-					throw ParseConfigException("Invalid port number - must be a positive integer between 0 and 65535", "listen");
-			}
+    std::vector<std::string> token = ParserUtils::split(listenStr, ' ');
+    
+    std::string address = token[0];
+        if (address.find(':') != std::string::npos) {
+            // Format IP:PORT
+            std::vector<std::string> addrtoken = ParserUtils::split(address, ':');
+            if (addrtoken.size() == 2 || _port > 0) {
+                _host = addrtoken[0];
+                _port = std::atoi(addrtoken[1].c_str());
+                if (_port < 0 || _port > 65535)
+                    throw ParseConfigException("Invalid port number : must be inferior to 65535", "autoindex");
+                // store normalized listen entry
+                std::string key = _host + std::string(":") + toString(_port);
+                if (std::find(_listen.begin(), _listen.end(), key) == _listen.end())
+                    _listen.push_back(key);
+            }
+            } else {
+                // Format PORT only
+                _host = "0.0.0.0";
+                _port = std::atoi(address.c_str());
+                if (_port < 0 || _port > 65535)
+                    throw ParseConfigException("Invalid port number - must be a positive integer between 0 and 65535", "listen");
+                std::string key = _host + std::string(":") + toString(_port);
+                if (std::find(_listen.begin(), _listen.end(), key) == _listen.end())
+                    _listen.push_back(key);
+            }
 }
 
 void ServerConfig::setClientMax(const size_t clientMax){

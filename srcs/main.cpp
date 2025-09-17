@@ -23,11 +23,27 @@ int main(int argc, char** argv)
 
         LOG("Configurations detectees: " + toString(serverConfigs.size()));
 
-        // Grouper les serveurs par couple host:port pour eviter le double bind
+        // Grouper les serveurs par couple host:port (supporte plusieurs listen par server)
         std::map<std::string, std::vector<ServerConfig> > groups;
         for (size_t i = 0; i < serverConfigs.size(); ++i) {
-            std::string key = serverConfigs[i].getHost() + std::string(":") + toString(serverConfigs[i].getPort());
-            groups[key].push_back(serverConfigs[i]);
+            const std::vector<std::string>& listens = serverConfigs[i].getListen();
+            if (!listens.empty()) {
+                for (size_t j = 0; j < listens.size(); ++j) {
+                    // listens[j] est normalisé sous forme host:port
+                    std::string key = listens[j];
+                    // cloner la config et forcer host/port pour ce listen précis
+                    ServerConfig clone = serverConfigs[i];
+                    size_t colon = key.find(':');
+                    std::string host = key.substr(0, colon);
+                    int port = std::atoi(key.substr(colon + 1).c_str());
+                    clone.setHost(host);
+                    clone.setPort(port);
+                    groups[key].push_back(clone);
+                }
+            } else {
+                std::string key = serverConfigs[i].getHost() + std::string(":") + toString(serverConfigs[i].getPort());
+                groups[key].push_back(serverConfigs[i]);
+            }
         }
 
         // Creer un socket d'ecoute par groupe (serveur par defaut = premier defini)

@@ -290,6 +290,17 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 					location.addAllowedMethod(methods[j]);
 					}
 			}
+			else if (directive.name == "upload_store") {
+				std::string p = ParserUtils::trim(directive.value);
+				p = expandLocalUserPath(p);
+				p = resolvePathRelativeToConfig(p);
+				location.setUploadStore(p);
+			}
+			else if (directive.name == "upload_create_dirs") {
+				if (directive.value != "on" && directive.value != "off")
+					throw ParseConfigException("' - upload_create_dirs must be 'on' or 'off'", "upload_create_dirs", directives[i]);
+				location.setUploadCreateDirs(ParserUtils::trim(directive.value));
+			}
 			else if (directive.name == "return") {
 				// Syntaxe: return <code> <url>;
 				std::vector<std::string> parts = ParserUtils::split(directive.value, ' ');
