@@ -1,4 +1,5 @@
 #include "ServerConfig.hpp"
+#include "../../include/Webserv.hpp"
 #include "ParseConfigException.hpp"
 #include "../utils/ValidationUtils.hpp"
 
@@ -88,15 +89,15 @@ void ServerConfig::setAutoindex(const std::string& autoindex){
 	_autoindex = autoIndex;
 }
 
-const std::string& ServerConfig::getServerName(){
+const std::string& ServerConfig::getServerName() const{
 	return _serverName;
 }
 
-const std::string& ServerConfig::getHost(){
+const std::string& ServerConfig::getHost() const{
 	return _host;
 }
 
-int ServerConfig::getPort(){
+int ServerConfig::getPort() const{
 	return _port;
 }
 
@@ -108,7 +109,7 @@ const std::string& ServerConfig::getIndex() const{
 	return _index;
 }
 
-const std::vector<std::string>& ServerConfig::getListen(){
+const std::vector<std::string>& ServerConfig::getListen() const{
 	return _listen;
 }
 
@@ -116,7 +117,7 @@ size_t ServerConfig::getClientMax() const{
 	return _clientMax;
 }
 
-bool ServerConfig::getAutoindex(){
+bool ServerConfig::getAutoindex() const{
 	return _autoindex;
 }
 

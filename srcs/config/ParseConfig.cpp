@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <sstream>
 
 
 ParseConfig::ParseConfig() : _pos(0) {}
@@ -181,17 +182,27 @@ std::string ParseConfig::resolvePathRelativeToConfig(const std::string& path) co
 
 Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) {
     Directive result;
-    std::string line = ParserUtils::trim(rawLine);
+    // Nettoyer les commentaires par ligne et concaténer les lignes utiles
+    std::stringstream ss(rawLine);
+    std::string accum;
+    std::string one;
+    while (std::getline(ss, one)) {
+        size_t h = one.find('#');
+        if (h != std::string::npos) one = one.substr(0, h);
+        one = ParserUtils::trim(one);
+        if (!one.empty()) {
+            if (!accum.empty()) accum += " ";
+            accum += one;
+        }
+    }
+    accum = ParserUtils::trim(accum);
+    if (accum.empty()) return result;
 
-    if (line.empty())
-        return result;
-    std::vector<std::string> token = ParserUtils::split(line, ' ');
-    if (token.empty())
-        return result;
+    std::vector<std::string> token = ParserUtils::split(accum, ' ');
+    if (token.empty()) return result;
     result.name = token[0];
     for (size_t i = 1; i < token.size(); ++i) {
-        if (!result.value.empty())
-            result.value += " ";
+        if (!result.value.empty()) result.value += " ";
         result.value += token[i];
     }
     result.value = ParserUtils::trim(result.value);
@@ -199,11 +210,21 @@ Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) {
 }
 
 void ParseConfig::parseLocationDirectives(const std::string& blockContent, LocationConfig& location){
-	std::string trimmedContent = ParserUtils::trim(blockContent);
-    if (!trimmedContent.empty() && trimmedContent[trimmedContent.length() - 1] == ';') {
-        trimmedContent = trimmedContent.substr(0, trimmedContent.length() - 1);
+    // Nettoyer le contenu: retirer les commentaires par ligne et concaténer
+    std::stringstream ss(blockContent);
+    std::string cleaned;
+    std::string line;
+    while (std::getline(ss, line)) {
+        // couper à '#'
+        size_t h = line.find('#');
+        if (h != std::string::npos) line = line.substr(0, h);
+        line = ParserUtils::trim(line);
+        if (line.empty()) continue;
+        if (!cleaned.empty()) cleaned += '\n';
+        cleaned += line;
     }
-	std::vector<std::string> directives = ParserUtils::split(blockContent, ';');
+    // Découper en directives par ';'
+    std::vector<std::string> directives = ParserUtils::split(cleaned, ';');
 
 	for (size_t i = 0; i < directives.size(); ++i)
 	{
@@ -366,10 +387,16 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 	for (size_t i = 0; i < lines.size(); ++i) {
 		std::string line = ParserUtils::trim(lines[i]);
 
+		// ignorer les commentaires
+		if (!line.empty() && line[0] == '#')
+			continue;
+
 		if (line.empty() || line == "{" || line == "}" || line == "server {")
 			continue;
 		if (ParserUtils::startsWith(line, "location")) {
-			std::string locationBlock = ParserUtils::checkBrace(line, lines, i);  // i is now passed by reference
+			int idx = (int)i;
+			std::string locationBlock = ParserUtils::checkBrace(line, lines, idx);  // avance idx à la fin du bloc
+			i = (size_t)idx;
 			parseLocationBlock(locationBlock, server);
     		continue;
 		}

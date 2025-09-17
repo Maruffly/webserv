@@ -47,7 +47,7 @@ bool ParserUtils::endsWith(const std::string& str, const std::string& suffix){
 	str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
-std::string ParserUtils::checkBrace(std::string &line, std::vector<std::string> &lines, int i) {
+std::string ParserUtils::checkBrace(std::string &line, std::vector<std::string> &lines, int &i) {
 	std::string locationBlock = line;
 	size_t openBraces = 0;
 	size_t closeBraces = 0;

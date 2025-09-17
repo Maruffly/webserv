@@ -9,7 +9,16 @@ int main(int argc, char** argv)
 {
     try 
     {
-        std::string configPath = (argc > 1) ? argv[1] : std::string("linux.conf");
+        if (argc < 2) {
+            ERROR("Aucun fichier de configuration fourni. Usage: ./webserv <config.conf>");
+            return 1;
+        }
+        std::string configPath = argv[1];
+        std::ifstream test(configPath.c_str());
+        if (!test.is_open()) {
+            ERROR("Impossible d'ouvrir le fichier de configuration: " + configPath);
+            return 1;
+        }
         LOG("Chargement du fichier de configuration: " + configPath);
 
         ParseConfig parser;

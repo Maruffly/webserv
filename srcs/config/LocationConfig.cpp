@@ -1,6 +1,13 @@
 #include "LocationConfig.hpp"
 
-LocationConfig::LocationConfig(): _clientMax(0), _autoindex(false), _hasReturn(false), _returnCode(0), _uploadCreateDirs(false) {}
+// Note: respecter l'ordre de déclaration dans le header pour éviter -Wreorder (avec -Werror)
+LocationConfig::LocationConfig()
+    : _clientMax(0)
+    , _autoindex(false)
+    , _uploadCreateDirs(false)
+    , _hasReturn(false)
+    , _returnCode(0)
+{}
 
 LocationConfig::~LocationConfig(){}
 

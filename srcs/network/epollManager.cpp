@@ -88,7 +88,10 @@ void epollManager::cleanupIdleConnections() {
         } else if ((!c.headersParsed || c.state == READING_BODY) && idle > READ_TIMEOUT) {
             // No keep-alive: close connections that don't progress fast enough
             closeClient(c.fd);
-            it = _clientConnections.erase(it);
+            std::map<int, ClientConnection>::iterator next = it;
+            ++next;
+            _clientConnections.erase(it);
+            it = next;
             erased = true;
         }
         if (!erased) ++it;
