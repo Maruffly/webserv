@@ -533,6 +533,7 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
     char buffer[BUFFER_SIZE];
     ssize_t bytesRead = recv(clientFd, buffer, BUFFER_SIZE, 0);
     if (bytesRead > 0) {
+        LOG("Read " + toString(bytesRead) + " bytes from client " + toString(clientFd));
         conn.buffer.append(buffer, bytesRead);
         if (conn.buffer.size() + conn.body.size() > MAX_REQUEST_SIZE) { sendErrorResponse(clientFd, 413, "Request Entity Too Large"); return; }
         if (!processConnectionData(clientFd)) { return; }
@@ -542,6 +543,8 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
             if (!conn.body.empty()) raw += std::string("Content-Length: ") + toString(conn.body.size()) + "\r\n";
             raw += "\r\n"; raw += conn.body; Request request(raw);
             if (request.isComplete()) {
+                LOG("Complete request received from client " + toString(clientFd));
+                request.print();
                 const ServerConfig& cfg = _serverForClientFd[clientFd];
                 // Detect CGI route early and start async CGI if needed
                 const LocationConfig* location = findLocationConfig(conn.uri, cfg);
@@ -550,7 +553,10 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
                     if (!startCgiFor(clientFd, request, cfg, location)) { sendErrorResponse(clientFd, 500, "Internal Server Error"); }
                 } else {
                     Response response = createResponseForRequest(request, cfg);
-                    std::string responseStr = response.getResponse(); conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
+                    std::string responseStr = response.getResponse();
+                    std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
+                    LOG("Response ready: " + statusLine + " (" + toString(responseStr.size()) + " bytes)");
+                    conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
                 }
             }
             else sendErrorResponse(clientFd, 400, "Bad Request");
@@ -571,7 +577,7 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
     size_t remaining = conn.outBuffer.size() - conn.outOffset;
     if (remaining == 0) { armWriteEvent(clientFd, false); _clientBuffers[clientFd].clear(); _clientConnections.erase(clientFd); closeClient(clientFd); return; }
     size_t toSend = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining; ssize_t n = send(clientFd, conn.outBuffer.data() + conn.outOffset, toSend, 0);
-    if (n > 0) { conn.outOffset += static_cast<size_t>(n); if (conn.outOffset >= conn.outBuffer.size()) { armWriteEvent(clientFd, false); _clientBuffers[clientFd].clear(); _clientConnections.erase(clientFd); closeClient(clientFd); } return; }
+    if (n > 0) { LOG("Sent " + toString(n) + " bytes to client " + toString(clientFd)); conn.outOffset += static_cast<size_t>(n); if (conn.outOffset >= conn.outBuffer.size()) { LOG("Response sent to client " + toString(clientFd)); armWriteEvent(clientFd, false); _clientBuffers[clientFd].clear(); _clientConnections.erase(clientFd); closeClient(clientFd); } return; }
     if (n < 0) { return; } // EAGAIN: wait for next EPOLLOUT
     // n == 0: peer closed
     closeClient(clientFd);
@@ -608,7 +614,10 @@ void epollManager::sendErrorResponse(int clientFd, int code, const std::string& 
     response.setHeader("Date", getCurrentDate());
     std::string body = createHtmlResponse(toString(code) + " " + message, "Error: " + message + "<br>Please try another URL.");
     response.setBody(body);
-    std::string responseStr = response.getResponse(); conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
+    std::string responseStr = response.getResponse();
+    std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
+    LOG("Response ready: " + statusLine + " (" + toString(responseStr.size()) + " bytes)");
+    conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
 }
 
 void epollManager::run()
