@@ -145,3 +145,61 @@ There is a working session and cookies system on the webserver.
 CGI
 
 There is more than one CGI system.
+
+
+
+
+
+
+
+
+
+
+CHECKING EVAL FORM
+
+
+    Ask explanations about the basics of an HTTP server.
+
+    Ask what function the group used for I/O Multiplexing
+-> boucle epoll unique dans le main ( epollManager loop(listenFds, serverGroups); )
+
+    Ask for an explanation of how does select() (or equivalent) work.
+
+    Ask if they use only one select() (or equivalent) and how they've managed the server to accept and the client to read/write.
+    
+    The select() (or equivalent) should be in the main loop and should check file descriptors for read and write AT THE SAME TIME. If not, the grade is 0 and the evaluation process ends now.
+-> loop.run (in main) : single epoll_wait in epollManager::run    
+
+    There should be only one read or one write per client per select() (or equivalent). Ask the group to show you the code from the select() (or equivalent) to the read and write of a client.
+-> handleClientRead and handleClientWrite only call recv/send once.     
+
+    Search for all read/recv/write/send on a socket and check that, if an error is returned, the client is removed.
+-> epollManager::handleClientRead : else if (bytesRead == 0) { closeClient(clientFd); }
+
+    Search for all read/recv/write/send and check if the returned value is correctly checked (checking only -1 or 0 values is not enough, both should be checked).
+   
+    If errno is checked after read/recv/write/send, the grade is 0 and the evaluation process ends now.
+    
+    Writing or reading ANY file descriptor without going through the select() (or equivalent) is strictly FORBIDDEN.
+   
+    The project must compile without any re-link issue. If not, use the 'Invalid compilation' flag.
+    
+    If any point is unclear or is not correct, the evaluation stops.
+
+
+
+Synthèse
+
+Installation de siege via Homebrew : non vérifiable dans le dépôt (consigne de soutenance, aucune trace).
+Questions pédagogiques (bases HTTP, fonction d’I/O, fonctionnement de select/epoll, gestion accept/lecture/écriture) : non vérifiable dans le code, à poser lors de la soutenance.
+Fonction d’I/O multiplexing : le projet utilise bien epoll unique (srcs/main.cpp:80, srcs/network/epollManager.cpp:629).
+Boucle principale : epoll_wait tourne en continu et déclenche lecture/écriture sur le même événement, armWriteEvent réactive EPOLLIN|EPOLLOUT pour une même fd (srcs/network/epollManager.cpp:629-652).
+Une seule lecture/écriture par itération : handleClientRead et handleClientWrite n’appellent recv/send qu’une fois par déclenchement (srcs/network/epollManager.cpp:534-583).
+Gestion des erreurs I/O : côté lecture, un retour <= 0 entraîne la fermeture du client (srcs/network/epollManager.cpp:565-566). En revanche, pour send, un retour négatif est ignoré et la connexion reste ouverte (srcs/network/epollManager.cpp:579-583), ce qui viole la consigne « en cas d’erreur le client doit être retiré ».
+Vérification des valeurs de retour : recv traite bien les cas >0, ==0, <0 (srcs/network/epollManager.cpp:534-566), mais send ne distingue pas l’erreur réelle d’un simple EAGAIN et ne ferme pas la connexion (srcs/network/epollManager.cpp:579-583).
+Usage de errno après recv/send/write/read : aucune lecture d’errno détectée, donc conformité à la règle.
+Lectures/écritures sur sockets hors epoll : seules recv et send sont appelées dans les handlers déclenchés par epoll, pas d’accès direct ailleurs (recherche globale).
+Compilation sans relink : non testée dans cet environnement en lecture seule.
+Prochaines étapes :
+
+Corriger handleClientWrite (et les handlers CGI) pour fermer la connexion quand send/write retourne une erreur réelle, afin de respecter la suppression immédiate du client.
