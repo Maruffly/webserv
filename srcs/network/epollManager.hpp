@@ -38,6 +38,7 @@ class	epollManager
 		bool        parseMultipartAndSave(const std::string& body, const std::string& boundary,
 		                                 const std::string& basePath, const std::string& uri,
 		                                 size_t& savedCount, bool& anyCreated, std::string& lastSavedPath);
+		std::string resolveCgiPath(const std::string& uri, const LocationConfig* location) const;
 
 	public:
 		void cleanupIdleConnections();

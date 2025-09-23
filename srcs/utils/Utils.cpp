@@ -47,7 +47,6 @@ std::string createHtmlResponse(const std::string& title, const std::string& cont
 #include <sys/stat.h> 
 #include <unistd.h>
 #include "Utils.hpp"
-#include "Response.hpp"
 
 
 bool fileExists(const std::string& path) {

@@ -6,6 +6,53 @@
 #include "../cgi/CgiHandler.hpp"
 #include <fstream>
 
+epollManager::epollManager(int serverSocket, ServerConfig& config) 
+	: _serverSocket(serverSocket), _epollFd(-1), _config(config)
+{
+	_lastCleanup = time(NULL);
+	_epollFd = epoll_create1(0);
+	if (_epollFd == -1)
+		throw std::runtime_error("epoll_create1 failed");
+	LOG("epoll instance created");
+
+	struct epoll_event event;
+	event.events = EPOLLIN;
+	event.data.fd = _serverSocket;
+
+	if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, _serverSocket, &event) == -1)
+	{
+		close(_epollFd);
+		throw std::runtime_error("Failed to add server socket to epoll");
+	}
+	LOG("Server socket added to epoll");
+}
+
+epollManager::~epollManager()
+{
+	if (_epollFd != -1)
+		close(_epollFd);
+
+	// close clients connections
+	std::map<int, std::string>::iterator bufIt;
+    for (bufIt = _clientBuffers.begin(); bufIt != _clientBuffers.end(); ++bufIt) {
+        close(bufIt->first);
+    }
+    _clientBuffers.clear();
+    _clientConnections.clear();
+}
+
+std::string epollManager::resolveCgiPath(const std::string& uri, const LocationConfig* location) const {
+    // Réutiliser la logique de resolveFilePath mais avec des logs détaillés
+    (void)location;
+    std::string filePath = resolveFilePath(uri);
+    
+    std::cout << "🔧 resolveCgiPath (via resolveFilePath):" << std::endl;
+    std::cout << "   Input URI: " << uri << std::endl;
+    std::cout << "   Resolved path: " << filePath << std::endl;
+    
+    return filePath;
+}
+
 Response epollManager::handleUpload(const Request& request, const LocationConfig& location) {
     Response response;
 
@@ -289,42 +336,6 @@ bool epollManager::isCgiRequest(const std::string& uri) const {
 	return !location->getCgiPass().empty();
 }
 
-epollManager::epollManager(int serverSocket, ServerConfig& config) 
-	: _serverSocket(serverSocket), _epollFd(-1), _config(config)
-{
-	_lastCleanup = time(NULL);
-	_epollFd = epoll_create1(0);
-	if (_epollFd == -1)
-		throw std::runtime_error("epoll_create1 failed");
-	LOG("epoll instance created");
-
-	struct epoll_event event;
-	event.events = EPOLLIN;
-	event.data.fd = _serverSocket;
-
-	if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, _serverSocket, &event) == -1)
-	{
-		close(_epollFd);
-		throw std::runtime_error("Failed to add server socket to epoll");
-	}
-	LOG("Server socket added to epoll");
-}
-
-epollManager::~epollManager()
-{
-	if (_epollFd != -1)
-		close(_epollFd);
-
-	// close clients connections
-	std::map<int, std::string>::iterator bufIt;
-    for (bufIt = _clientBuffers.begin(); bufIt != _clientBuffers.end(); ++bufIt) {
-        close(bufIt->first);
-    }
-    _clientBuffers.clear();
-    _clientConnections.clear();
-}
-
-
 bool epollManager::isMethodAllowed(const std::string& method, const std::string& uri) const
 {
 	const LocationConfig* location = findLocationConfig(uri);
@@ -372,7 +383,7 @@ std::string epollManager::buildAllowHeader(const LocationConfig* location) const
 // Règles:
 // - Si la location n'a PAS de root explicite: utiliser server_root + uri (ne pas retirer le préfixe)
 // - Si la location a un root explicite: retirer le préfixe de location et utiliser location_root + chemin_relatif
-std::string epollManager::resolveFilePath(const std::string& uri) const {
+/* std::string epollManager::resolveFilePath(const std::string& uri) const {
     const LocationConfig* location = findLocationConfig(uri);
     const bool hasLocation = (location != NULL);
     const bool locationHasRoot = (hasLocation && !location->getRoot().empty());
@@ -395,13 +406,14 @@ std::string epollManager::resolveFilePath(const std::string& uri) const {
         if (!mount.empty() && rel.find(mount) == 0) {
             rel = rel.substr(mount.length());
         }
-    } else {
-        // Pas de root spécifique à la location: on conserve l'URI entière
-        rel = pathOnly;
     }
+    // Pas de root spécifique à la location: on conserve l'URI entière
+    else
+        rel = pathOnly;
 
     // Normalisation canonique de rel (résolution . et ..)
-    if (!rel.empty() && rel[0] == '/') rel.erase(0,1);
+    if (!rel.empty() && rel[0] == '/')
+        rel.erase(0,1);
 
     std::vector<std::string> parts = ParserUtils::split(rel, '/');
     std::vector<std::string> stack;
@@ -436,6 +448,77 @@ std::string epollManager::resolveFilePath(const std::string& uri) const {
         }
 }
     //std::cout << "\n\n\n" << "FULLL PATH : " << full << std::endl;
+    return full;
+} */
+
+std::string epollManager::resolveFilePath(const std::string& uri) const {
+    const LocationConfig* location = findLocationConfig(uri);
+    const bool hasLocation = (location != NULL);
+    const bool locationHasRoot = (hasLocation && !location->getRoot().empty());
+
+    std::string root = locationHasRoot ? location->getRoot() : _config.getRoot();
+
+    // Retirer query-string et fragment de l'URI
+    std::string pathOnly = uri;
+    size_t qpos = pathOnly.find('?');
+    if (qpos != std::string::npos) pathOnly = pathOnly.substr(0, qpos);
+    size_t fpos = pathOnly.find('#');
+    if (fpos != std::string::npos) pathOnly = pathOnly.substr(0, fpos);
+
+    // APPROCHE SIMPLIFIÉE: Si location avec root, utiliser root + URI complète
+    // mais en nettoyant les doubles slashes
+    if (locationHasRoot) {
+        std::string fullPath = root;
+        if (fullPath[fullPath.size()-1] != '/' && !pathOnly.empty() && pathOnly[0] != '/') {
+            fullPath += "/";
+        }
+        fullPath += pathOnly;
+        
+        // Nettoyer les doubles slashes
+        size_t pos;
+        while ((pos = fullPath.find("//")) != std::string::npos) {
+            fullPath.replace(pos, 2, "/");
+        }
+        
+        std::cout << "🔧 resolveFilePath SIMPLE:" << std::endl;
+        std::cout << "   URI: " << uri << std::endl;
+        std::cout << "   Root: " << root << std::endl;
+        std::cout << "   Full: " << fullPath << std::endl;
+        
+        return fullPath;
+    }
+
+    // Sinon, utiliser l'ancienne logique pour les locations sans root spécifique
+    std::string rel = pathOnly;
+    if (!rel.empty() && rel[0] == '/')
+        rel.erase(0,1);
+
+    std::vector<std::string> parts = ParserUtils::split(rel, '/');
+    std::vector<std::string> stack;
+    for (size_t i = 0; i < parts.size(); ++i) {
+        const std::string& seg = parts[i];
+        if (seg.empty() || seg == ".") continue;
+        if (seg == "..") {
+            if (stack.empty()) {
+                return ""; // tentative d'évasion
+            }
+            stack.pop_back();
+        } else {
+            stack.push_back(seg);
+        }
+    }
+
+    std::string full = root;
+    if (!full.empty() && full[full.size()-1] != '/') full += "/";
+    for (size_t i = 0; i < stack.size(); ++i) {
+        if (i) full += "/";
+        full += stack[i];
+    }
+    
+    std::cout << "🔧 resolveFilePath STANDARD:" << std::endl;
+    std::cout << "   URI: " << uri << std::endl;
+    std::cout << "   Full: " << full << std::endl;
+    
     return full;
 }
 
@@ -639,7 +722,6 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
         return cgi.execute(request, scriptPath, interpreter);
         }
     }
-
     // Upload handler
     std::string basePath = resolveFilePath(uri);
 
@@ -719,7 +801,7 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
 }
 // Modifier createResponseForRequest pour utiliser la config
 // epollManager.cpp - IMPLÉMENTATION COMPLÈTE
-Response epollManager::createResponseForRequest(const Request& request) {
+/* Response epollManager::createResponseForRequest(const Request& request) {
 	Response response;
 	
 	// 1. Vérifier la version HTTP
@@ -816,17 +898,29 @@ Response epollManager::createResponseForRequest(const Request& request) {
 		it = cgiConfig.find(".*"); // Try wildcard match
 	}
 	
-	if (it != cgiConfig.end()) {
+	if (it != cgiConfig.end())
+    {
 		std::string interpreter = it->second;
-		std::string scriptPath = location->getRoot() + uri;
+		std::string scriptPath = resolveCgiPath(uri, location);
 		
 		std::cout << "Executing CGI with:" << std::endl
-				 << "  Interpreter: " << interpreter << std::endl
-				 << "  Script path: " << scriptPath << std::endl;
-		
-		CgiHandler cgi;
-		return cgi.execute(request, scriptPath, interpreter);
-	} else {
+                 << "  Interpreter: " << interpreter << std::endl
+                 << "  Script path: " << scriptPath << std::endl
+                 << "  File exists: " << fileExists(scriptPath) << std::endl;
+        
+        // Vérifier que le script existe
+        if (!fileExists(scriptPath)) {
+            response.setStatus(404, "Not Found");
+            response.setHeader("Content-Type", "text/html");
+            response.setBody(createHtmlResponse("404 Not Found", 
+                           "CGI script not found: " + scriptPath));
+        } else {
+            CgiHandler cgi;
+            return cgi.execute(request, scriptPath, interpreter);
+        }
+    }
+    else 
+    {
 		response.setStatus(400, "Bad Request");
 		response.setBody(createHtmlResponse("400 Bad Request", 
 					   "No CGI interpreter configured for extension: " + extension));
@@ -835,7 +929,13 @@ Response epollManager::createResponseForRequest(const Request& request) {
 	else {
         // Servir des fichiers statiques (utilise resolveFilePath)
         std::string filePath = resolveFilePath(uri);
-        
+
+                std::cout << "DEBUG: uri = '" << uri << "'" << std::endl;
+                std::cout << "DEBUG: resolveFilePath returned = '" << filePath << "'" << std::endl;
+                std::cout << "DEBUG: fileExists(filePath) = " << fileExists(filePath) << std::endl;
+                if (fileExists(filePath))
+                    std::cout << "DEBUG: isDirectory(filePath) = " << isDirectory(filePath) << std::endl;
+
         if (!filePath.empty() && fileExists(filePath)) {
             if (isDirectory(filePath)) {
                 // Gestion des répertoires
@@ -891,8 +991,171 @@ Response epollManager::createResponseForRequest(const Request& request) {
 	response.setHeader("Date", getCurrentDate());
 
 	return response;
-}
+} */
 
+Response epollManager::createResponseForRequest(const Request& request) {
+    Response response;
+    
+    // 1. Vérifier la version HTTP
+    if (request.getVersion() != "HTTP/1.1" && request.getVersion() != "HTTP/1.0") {
+        response.setStatus(505, "HTTP Version Not Supported");
+        response.setBody(createHtmlResponse("505 HTTP Version Not Supported", 
+                                          "Unsupported HTTP version: " + request.getVersion()));
+        response.setHeader("Content-Type", "text/html");
+        return response;
+    }
+
+    // 2. Vérifier les méthodes autorisées via config
+    std::string method = request.getMethod();
+    std::string uri = request.getUri();
+    const LocationConfig* location = findLocationConfig(uri);
+    
+    if (!isMethodAllowed(method, uri)) {
+        response.setStatus(405, "Method Not Allowed");
+        response.setHeader("Allow", buildAllowHeader(location));
+        response.setHeader("Content-Type", "text/html");
+        response.setBody(createHtmlResponse("405 Method Not Allowed",
+                                            "Method " + method + " is not allowed for this resource"));
+        return response;
+    }
+
+    // 3. Gestion de DELETE (doit être avant CGI)
+    if (method == "DELETE") {
+        Response delResp = handleDelete(request, location);
+        return delResp;
+    }
+
+    // 4. Gestion de POST (doit être avant CGI)
+    if (method == "POST") {
+        Response postResp = handlePost(request, location);
+        return postResp;
+    }
+
+    // 5. Vérifier CGI EN PREMIER
+    if (location && !location->getCgiPass().empty() /* && isCgiFile(uri, _config.getLocations()) */) {
+        std::string extension = getFileExtension(uri);
+        const std::map<std::string, std::string>& cgiConfig = location->getCgiPass();
+        
+        std::cout << "🔍 CGI DETECTED - URI: " << uri << ", Extension: " << extension << std::endl;
+        
+        std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension);
+        if (it == cgiConfig.end()) {
+            it = cgiConfig.find(".*");
+        }
+        
+        if (it != cgiConfig.end()) {
+            std::string interpreter = it->second;
+            std::string scriptPath = resolveCgiPath(uri, location);
+            
+            std::cout << "🚀 EXECUTING CGI:" << std::endl
+                     << "   Interpreter: " << interpreter << std::endl
+                     << "   Script path: " << scriptPath << std::endl
+                     << "   File exists: " << fileExists(scriptPath) << std::endl;
+            
+            if (!fileExists(scriptPath)) {
+                response.setStatus(404, "Not Found");
+                response.setHeader("Content-Type", "text/html");
+                response.setBody(createHtmlResponse("404 Not Found", 
+                                   "CGI script not found: " + scriptPath));
+            } else {
+                CgiHandler cgi;
+                return cgi.execute(request, scriptPath, interpreter);
+            }
+        }
+    }
+
+    // 6. Si ce n'est pas CGI, continuer avec le routage normal
+    if (uri == "/") {
+        // Servir la page d'accueil configurée
+        std::string indexFiles = _config.getIndex();
+        std::vector<std::string> indexList = ParserUtils::split(indexFiles, ' ');
+        bool indexFound = false;
+        
+        for (size_t i = 0; i < indexList.size() && !indexFound; ++i) {
+            std::string indexFile = ParserUtils::trim(indexList[i]);
+            if (!indexFile.empty()) {
+                std::string filePath = resolveFilePath("/" + indexFile);
+                if (!filePath.empty() && fileExists(filePath)) {
+                    response.setStatus(200, "OK");
+                    response.setHeader("Content-Type", getContentType(indexFile));
+                    response.setBody(readFileContent(filePath));
+                    indexFound = true;
+                }
+            }
+        }
+        
+        if (!indexFound) {
+            response.setStatus(404, "Not Found");
+            response.setHeader("Content-Type", "text/html");
+            response.setBody(createHtmlResponse("404 Not Found", 
+                                              "Index file not found: " + indexFiles));
+        }
+    } else {
+        // Servir des fichiers statiques
+        std::string filePath = resolveFilePath(uri);
+
+        std::cout << "📁 STATIC FILE - URI: '" << uri << "'" << std::endl;
+        std::cout << "📁 Resolved path: '" << filePath << "'" << std::endl;
+        std::cout << "📁 File exists: " << fileExists(filePath) << std::endl;
+        if (fileExists(filePath)) {
+            std::cout << "📁 Is directory: " << isDirectory(filePath) << std::endl;
+        }
+
+        if (!filePath.empty() && fileExists(filePath)) {
+            if (isDirectory(filePath)) {
+                // Gestion des répertoires
+                if (location && location->getAutoindex()) {
+                    response.setStatus(200, "OK");
+                    response.setHeader("Content-Type", "text/html");
+                    response.setBody(generateDirectoryListing(filePath, uri));
+                } else {
+                    // Chercher index files
+                    std::string indexFiles = _config.getIndex();
+                    std::vector<std::string> indexList = ParserUtils::split(indexFiles, ' ');
+                    bool indexFound = false;
+                    
+                    for (size_t i = 0; i < indexList.size() && !indexFound; ++i) {
+                        std::string indexFile = ParserUtils::trim(indexList[i]);
+                        if (!indexFile.empty()) {
+                            std::string indexFilePath = filePath + "/" + indexFile;
+                            if (fileExists(indexFilePath)) {
+                                response.setStatus(200, "OK");
+                                response.setHeader("Content-Type", getContentType(indexFile));
+                                response.setBody(readFileContent(indexFilePath));
+                                indexFound = true;
+                            }
+                        }
+                    }
+                    
+                    if (!indexFound) {
+                        response.setStatus(403, "Forbidden");
+                        response.setHeader("Content-Type", "text/html");
+                        response.setBody(createHtmlResponse("403 Forbidden", 
+                                                          "Directory listing forbidden"));
+                    }
+                }
+            } else {
+                // Fichier régulier
+                response.setStatus(200, "OK");
+                response.setHeader("Content-Type", getContentType(filePath));
+                response.setBody(readFileContent(filePath));
+            }
+        } else {
+            // Fichier non trouvé
+            response.setStatus(404, "Not Found");
+            response.setHeader("Content-Type", "text/html");
+            response.setBody(createHtmlResponse("404 Not Found", 
+                                              "The requested URL " + uri + " was not found"));
+        }
+    }
+
+    // Headers communs
+    response.setHeader("Connection", "close");
+    response.setHeader("Server", "webserv/1.0");
+    response.setHeader("Date", getCurrentDate());
+
+    return response;
+}
 
 void	epollManager::handleNewConnection()
 {

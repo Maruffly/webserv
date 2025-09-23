@@ -27,4 +27,3 @@ bool 		isCgiFile(const std::string& uri, const std::vector<LocationConfig>& loca
 std::string toUpperCase(const std::string& str);
 std::string replaceChars(const std::string& str, const std::string& from, const std::string& to);
 std::string getFileExtension(const std::string& path);
-void		setResponse(Response reponse);
