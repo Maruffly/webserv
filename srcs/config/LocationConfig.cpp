@@ -8,6 +8,10 @@ void LocationConfig::setPath(const std::string& path){
 	_path = path;
 }
 
+void LocationConfig::setPathUpload(const std::string& path){
+	_upload = path;
+}
+
 void LocationConfig::setRoot(const std::string& root){
 	_root = root;
 }
@@ -63,6 +67,14 @@ void LocationConfig::addDeny(const std::string& ip) {
 
 const std::string& LocationConfig::getPath()const{
 	return _path;
+}
+
+const std::string& LocationConfig::getUploadPath()const{
+	return _upload;
+}
+
+bool LocationConfig::hasUploadPath() const {
+        return !_upload.empty();
 }
 
 const std::string& LocationConfig::getRoot()const{
@@ -164,5 +176,8 @@ void LocationConfig::printConfigLocation() const {
 		}
 		std::cout << std::endl;
 	}
+	if (!_upload.empty())
+		std::cout << " Upload: " << _upload << std::endl;
+
 	std::cout << "  ===========================" << std::endl;
 }

@@ -19,6 +19,7 @@ class	epollManager
 
 		void		handleNewConnection();
 		void		handleClientData(int clientFd);
+		Response 	handleUpload(const Request& request, const LocationConfig& location);
 		void		closeClient(int clientFd);
 		void		sendErrorResponse(int clientFd, int code, const std::string& message);
 		Response	createResponseForRequest(const Request& request);

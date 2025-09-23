@@ -16,7 +16,7 @@
 std::string getCurrentDate();
 std::string getContentType(const std::string& uri);
 std::string createHtmlResponse(const std::string& title, const std::string& content);
-
+int			mkdirRecursive(const std::string& path, mode_t mode = 0750);
 bool		fileExists(const std::string& path);
 bool		isDirectory(const std::string& path);
 std::string	readFileContent(const std::string& path);
@@ -27,3 +27,4 @@ bool 		isCgiFile(const std::string& uri, const std::vector<LocationConfig>& loca
 std::string toUpperCase(const std::string& str);
 std::string replaceChars(const std::string& str, const std::string& from, const std::string& to);
 std::string getFileExtension(const std::string& path);
+void		setResponse(Response reponse);

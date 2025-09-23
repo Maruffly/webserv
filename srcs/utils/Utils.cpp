@@ -47,6 +47,8 @@ std::string createHtmlResponse(const std::string& title, const std::string& cont
 #include <sys/stat.h> 
 #include <unistd.h>
 #include "Utils.hpp"
+#include "Response.hpp"
+
 
 bool fileExists(const std::string& path) {
     struct stat buffer;
@@ -179,4 +181,31 @@ std::string getFileExtension(const std::string& path) {
         return "";
     }
     return path.substr(dot + 1);
+}
+
+// Crée récursivement les dossiers (mkdir -p)
+int mkdirRecursive(const std::string& path, mode_t mode) {
+    if (path.empty()) return -1;
+
+    std::string current;
+    std::stringstream ss(path);
+    std::string segment;
+
+    if (path[0] == '/')
+        current = "/";
+
+    while (std::getline(ss, segment, '/')) {
+        if (segment.empty()) continue;
+        if (current != "/" && !current.empty())
+            current += "/";
+        current += segment;
+
+        if (!isDirectory(current)) {
+            if (mkdir(current.c_str(), mode) != 0) {
+                if (errno == EEXIST) continue;
+                return -1;
+            }
+        }
+    }
+    return 0;
 }

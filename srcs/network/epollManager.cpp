@@ -6,10 +6,69 @@
 #include "../cgi/CgiHandler.hpp"
 #include <fstream>
 
+Response epollManager::handleUpload(const Request& request, const LocationConfig& location) {
+    Response response;
+
+    if (!location.hasUploadPath()) {
+        response.setStatus(403, "Forbidden");
+        response.setHeader("Content-Type", "text/plain");
+        response.setBody("Upload not allowed here\n");
+        return response;
+    }
+    size_t maxBody = getEffectiveClientMax(&location);
+
+    if (maxBody > 0 && request.getBody().size() > maxBody) {
+        response.setStatus(413, "Request Entity Too Large");
+        response.setHeader("Content-Type", "text/plain");
+        response.setBody("Body exceeds client_max_body_size\n");
+        return response;
+    }
+    std::string dir = location.getUploadPath();
+
+    // create directory if needed
+    if (mkdirRecursive(dir, 0750) == -1) {
+        response.setStatus(500, "Internal Server Error");
+        response.setHeader("Content-Type", "text/plain");
+        response.setBody("Upload directory could not be created\n");
+        return response;
+    }
+
+    // generate unique filename
+    std::ostringstream filename;
+    filename << "upload_" << time(NULL) << "_" << getpid() << ".bin";
+    std::string filepath = dir + "/" + filename.str();
+
+    // write the file
+    std::ofstream ofs(filepath.c_str(), std::ios::binary);
+    if (!ofs) {
+        response.setStatus(500, "Internal Server Error");
+        response.setHeader("Content-Type", "text/plain");
+        response.setBody("Could not open file for writing\n");
+        return response;
+    }
+    ofs.write(request.getBody().c_str(), request.getBody().size());
+    ofs.close();
+
+    std::string publicUrl = location.getPath();
+    if (!publicUrl.empty() && publicUrl[publicUrl.size() - 1] != '/')
+        publicUrl += "/";
+    publicUrl += filename.str();
+
+    // response
+    response.setStatus(201, "Created");
+    response.setHeader("Content-Type", "text/plain");
+    response.setHeader("Location", publicUrl);
+    response.setBody("✅ File uploaded successfully!\n"
+                     "Saved as: " + filepath + "\n"
+                     "Accessible at: " + publicUrl + "\n");
+
+    return response;
+}
+
 void epollManager::cleanupIdleConnections() {
     time_t now = time(NULL);
     
-    // Nettoyer seulement toutes les 5 secondes
+    // clean connection each 5sec
     if (now - _lastCleanup < CLEANUP_INTERVAL) {
         return;
     }
@@ -22,7 +81,7 @@ void epollManager::cleanupIdleConnections() {
     while (bufIt != _clientBuffers.end()) {
         int clientFd = bufIt->first;
         
-        // Vérifier si le client existe dans les connexions
+        // check connection if client exist
         std::map<int, ClientConnection>::iterator connIt = _clientConnections.find(clientFd);
         if (connIt != _clientConnections.end()) {
             double idleTime = difftime(now, connIt->second.lastActivity);
@@ -40,18 +99,18 @@ void epollManager::cleanupIdleConnections() {
         }
         bufIt++;
     }
-    
     if (closedCount > 0) {
         LOG("Closed " + toString(closedCount) + " idle connections");
     }
 }
 
+// Use custom body size if defined
 size_t epollManager::getEffectiveClientMax(const LocationConfig* location) const {
     if (location && location->getClientMax() > 0) return location->getClientMax();
     return _config.getClientMax();
 }
 
-// Parse headers and start-line for a client if available
+// Parse headers and startline for a client if available
 bool epollManager::parseHeadersFor(int clientFd) {
     ClientConnection &conn = _clientConnections[clientFd];
     size_t pos = conn.buffer.find("\r\n\r\n");
@@ -251,8 +310,6 @@ epollManager::epollManager(int serverSocket, ServerConfig& config)
 	LOG("Server socket added to epoll");
 }
 
-
-
 epollManager::~epollManager()
 {
 	if (_epollFd != -1)
@@ -368,6 +425,17 @@ std::string epollManager::resolveFilePath(const std::string& uri) const {
         if (i) full += "/";
         full += stack[i];
     }
+    if (hasLocation && rel.empty()) {
+        std::string mount = location->getPath();
+        std::string index = location->getIndex();
+        if (!index.empty()) {
+            if (full[full.size()-1] != '/') full += "/";
+                full += mount.substr(1); // ajoute "uploads/"
+            if (full[full.size()-1] != '/') full += "/";
+                full += index; // ajoute "index.html"
+        }
+}
+    //std::cout << "\n\n\n" << "FULLL PATH : " << full << std::endl;
     return full;
 }
 
@@ -555,27 +623,30 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
     // CGI?
     if (location && !location->getCgiPass().empty() && isCgiFile(uri, _config.getLocations())) {
         std::string extension = getFileExtension(uri);
+        /* std::cout << "\n\n" << extension << "\n\n" << std::endl; */
         const std::map<std::string, std::string>& cgiConfig = location->getCgiPass();
         std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension);
         if (it == cgiConfig.end()) it = cgiConfig.find(".*");
         if (it != cgiConfig.end()) {
             std::string interpreter = it->second;
-            std::string scriptPath = location->getRoot().empty() ? (_config.getRoot() + uri) : (location->getRoot() + uri.substr(location->getPath().size()));
-            CgiHandler cgi;
-            return cgi.execute(request, scriptPath, interpreter);
+            std::string scriptPath;
+        if (location->getRoot().empty()) {
+            scriptPath = _config.getRoot() + uri;
+        }
+        else
+            scriptPath = location->getRoot() + uri.substr(location->getPath().size());
+        CgiHandler cgi;
+        return cgi.execute(request, scriptPath, interpreter);
         }
     }
 
-    // Static upload
+    // Upload handler
     std::string basePath = resolveFilePath(uri);
-    if (basePath.empty()) {
-        response.setStatus(403, "Forbidden");
-        response.setHeader("Content-Type", "text/html");
-        response.setBody(createHtmlResponse("403 Forbidden", "Invalid upload path"));
-        return response;
-    }
 
-    // Enforce max body size (location overrides)
+    if (location && location->hasUploadPath())
+        return handleUpload(request, *location);
+
+    // check body size
     size_t maxBody = getEffectiveClientMax(location);
     if (maxBody > 0 && request.getBody().size() > maxBody) {
         response.setStatus(413, "Request Entity Too Large");
@@ -585,7 +656,6 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
     }
 
     std::string ct = request.getHeader("Content-Type");
-    // lower for startsWith
     std::string ctl = ct; for (size_t i=0;i<ctl.size();++i) ctl[i]=std::tolower(ctl[i]);
 
     bool created = false;
@@ -696,12 +766,10 @@ Response epollManager::createResponseForRequest(const Request& request) {
 										  toString(_config.getClientMax()) + " bytes"));
 		response.setHeader("Content-Type", "text/html");
 		return response;
-	}
-
-    // 4. Trouver la configuration de location correspondante (déjà obtenu)
+        }
     
 	// 5. Routing basé sur la configuration
-    if (uri == "/" || uri == "/index.html") {
+    if (uri == "/") {
         // Servir la page d'accueil configurée (utilise resolveFilePath pour cohérence)
         std::string indexFiles = _config.getIndex();
         
@@ -805,7 +873,7 @@ Response epollManager::createResponseForRequest(const Request& request) {
             } else {
                 // Fichier régulier
                 response.setStatus(200, "OK");
-                response.setHeader("Content-Type", getContentType(uri));
+                response.setHeader("Content-Type", "text/html");
                 response.setBody(readFileContent(filePath));
             }
         } else {
@@ -824,9 +892,6 @@ Response epollManager::createResponseForRequest(const Request& request) {
 
 	return response;
 }
-
-
-
 
 
 void	epollManager::handleNewConnection()

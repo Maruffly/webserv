@@ -290,6 +290,13 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 					location.addAllowedMethod(methods[j]);
 					}
 			}
+			else if (directive.name == "upload") {
+				std::string uploadPath = ParserUtils::trim(directive.value);
+				uploadPath = resolvePathRelativeToConfig(uploadPath);
+				if (!ValidationUtils::isValidPath(uploadPath))
+					throw ParseConfigException("' - Invalid upload path, must be absolute or valid relative", "upload", directives[i]);
+				location.setPathUpload(uploadPath);
+			}
 			else
 				throw ParseConfigException("Unknown location directive: " + directive.name, directives[i]);
 	}

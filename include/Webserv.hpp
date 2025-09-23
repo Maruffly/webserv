@@ -36,7 +36,7 @@
 #define BACKLOG 10 // connections waiting in queue
 #define BUFFER_SIZE 1024
 #define MAX_EVENTS 64
-#define MAX_REQUEST_SIZE 8192
+#define MAX_REQUEST_SIZE 524288000
 #define MAX_CLIENTS 100 
 #define CONNECTION_TIMEOUT 30
 #define READ_TIMEOUT 15

@@ -10,7 +10,7 @@ class LocationConfig {
 			std::string _path;
 			std::string _root;
 			std::string	_index;
-
+			std::string	_upload;
 			size_t		_clientMax;
 			bool		_autoindex;
 
@@ -27,6 +27,7 @@ class LocationConfig {
 			LocationConfig();
 			~LocationConfig();
 			void setPath(const std::string& path);
+			void setPathUpload(const std::string& path);
 			void setRoot(const std::string& root);
 			void setIndex(const std::string& index);
 			void setLimitExcept(const std::string& limit_except);
@@ -42,6 +43,7 @@ class LocationConfig {
 			const std::string& getPath()const;
 			const std::string& getRoot()const;
 			const std::string& getIndex()const;
+			const std::string& getUploadPath()const;
 			const std::string& getLimitExcept()const;
 			size_t getClientMax()const;
 			bool getAutoindex()const;
@@ -52,5 +54,6 @@ class LocationConfig {
 			const std::vector<std::string>& getIPdeny()const;
 			std::string getCgiInterpreter(const std::string& extension) const;
    			bool isCgiRequest(const std::string& uri) const;
+			bool hasUploadPath() const;
 			void printConfigLocation() const;
 };
