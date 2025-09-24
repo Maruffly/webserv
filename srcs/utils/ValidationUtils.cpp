@@ -73,17 +73,13 @@ bool ValidationUtils::isValidBodySize(const std::string& sizeStr) {
     if (sizeStr.empty())
 		return false;
 
-    size_t multiplier = 1;
     std::string numberPart = sizeStr;
-    
+
     if (!std::isdigit(sizeStr[sizeStr.length() - 1])) {
         char unit = std::tolower(sizeStr[sizeStr.length() - 1]);
         numberPart = sizeStr.substr(0, sizeStr.size() - 1);
-        
-        if (unit == 'k') multiplier = 1024;
-        else if (unit == 'm') multiplier = 1024 * 1024;
-        else if (unit == 'g') multiplier = 1024 * 1024 * 1024;
-        else return false;
+
+        if (unit != 'k' && unit != 'm' && unit != 'g') return false;
     }
     bool allDigits = true;
     for (std::string::const_iterator it = numberPart.begin(); it != numberPart.end(); ++it) {

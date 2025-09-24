@@ -374,7 +374,10 @@ bool epollManager::parseMultipartAndSave(const std::string& body, const std::str
     if (boundary.empty()) return false;
     std::string sep = std::string("--") + boundary; size_t pos = 0; size_t start = body.find(sep, pos); if (start == std::string::npos) return false; pos = start + sep.size();
     while (true) {
-        if (pos + 2 > body.size()) break; if (body.substr(pos, 2) == "--") break; if (body.substr(pos, 2) != "\r\n") return false; pos += 2;
+        if (pos + 2 > body.size()) break;
+        if (body.substr(pos, 2) == "--") break;
+        if (body.substr(pos, 2) != "\r\n") return false;
+        pos += 2;
         size_t hdrEnd = body.find("\r\n\r\n", pos); if (hdrEnd == std::string::npos) return false; std::string headers = body.substr(pos, hdrEnd - pos); pos = hdrEnd + 4;
         std::string filename;
         size_t cd = headers.find("Content-Disposition:"); if (cd != std::string::npos) {
@@ -648,7 +651,8 @@ void epollManager::armWriteEvent(int clientFd, bool enable)
 {
     struct epoll_event ev; 
     ev.data.fd = clientFd; 
-    ev.events = EPOLLIN | (enable ? EPOLLOUT : 0); 
+    ev.events = EPOLLIN;
+    if (enable) ev.events |= EPOLLOUT;
     if (epoll_ctl(_epollFd, EPOLL_CTL_MOD, clientFd, &ev) == -1) { ERROR_SYS("epoll_ctl mod client"); }
 }
 
