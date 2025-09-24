@@ -8,6 +8,15 @@ const std::map<std::string, std::string>& Response::getHeaders() const {
 		return _headers;
 }
 
+int Response::getStatusCode() const {
+		return _statusCode;
+}
+
+std::string Response::getBody() const {
+		return _body;
+}
+
+
 void	Response::setStatus(int code, const std::string &message)
 {
 	_statusCode = code;
@@ -30,7 +39,6 @@ void Response::setBody(const std::string& body)
         setHeader("Content-Length", toString(_body.length()));
 	//_response += "\r\n" + _body;
 }
-
 
 std::string	Response::getResponse() const
 {

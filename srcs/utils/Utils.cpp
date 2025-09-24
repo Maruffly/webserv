@@ -174,12 +174,21 @@ std::string replaceChars(const std::string& str, const std::string& from, const 
     return result;
 }
 
-std::string getFileExtension(const std::string& path) {
-    size_t dot = path.find_last_of(".");
-    if (dot == std::string::npos) {
-        return "";
+std::string getFileExtension(const std::string& uri) {
+    std::string cleanUri = uri;
+    size_t queryPos = uri.find('?');
+    if (queryPos != std::string::npos) {
+        cleanUri = uri.substr(0, queryPos);
     }
-    return path.substr(dot + 1);
+    
+    size_t dotPos = cleanUri.find_last_of('.');
+    if (dotPos != std::string::npos && dotPos < cleanUri.length() - 1) {
+        std::string ext = cleanUri.substr(dotPos); // Ceci inclut le point
+        std::cout << "🔍 getFileExtension: '" << uri << "' -> '" << ext << "'" << std::endl;
+        return ext;
+    }
+    std::cout << "🔍 getFileExtension: '" << uri << "' -> ''" << std::endl;
+    return "";
 }
 
 // Crée récursivement les dossiers (mkdir -p)

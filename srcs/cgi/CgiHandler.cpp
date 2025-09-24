@@ -30,6 +30,52 @@ std::vector<char*> CgiHandler::prepareArgs(const std::string& scriptPath, const 
 }
 
 void CgiHandler::setupEnvironment(const Request& request, const std::string& scriptPath) {
+    _env.clear();
+    
+    // Variables CGI standard
+    _env["GATEWAY_INTERFACE"] = "CGI/1.1";
+    _env["SERVER_PROTOCOL"] = "HTTP/1.1";
+    _env["SERVER_SOFTWARE"] = "webserv/1.0";
+    _env["REQUEST_METHOD"] = request.getMethod();
+    
+    // CORRECTION: Séparer PATH_INFO et SCRIPT_NAME
+    std::string uri = request.getUri();
+    size_t queryPos = uri.find('?');
+    std::string pathOnly = (queryPos != std::string::npos) ? uri.substr(0, queryPos) : uri;
+    
+    _env["SCRIPT_NAME"] = pathOnly;
+    _env["SCRIPT_FILENAME"] = scriptPath;
+    _env["PATH_INFO"] = ""; // Ajustez selon vos besoins
+    
+    // Query string
+    _env["QUERY_STRING"] = (queryPos != std::string::npos) ? uri.substr(queryPos + 1) : "";
+    
+    _env["REDIRECT_STATUS"] = "200";
+    _env["SERVER_NAME"] = "localhost"; // AJOUT
+    _env["SERVER_PORT"] = "8080";      // AJOUT - ajustez selon votre config
+    
+    // Variables d'environnement système importantes
+    _env["PATH"] = "/usr/bin:/bin:/usr/local/bin";
+    
+    // Headers HTTP
+    const std::map<std::string, std::string>& headers = request.getHeaders();
+    for (std::map<std::string, std::string>::const_iterator it = headers.begin(); 
+         it != headers.end(); ++it) {
+        std::string envName = "HTTP_" + toUpperCase(replaceChars(it->first, "-", "_"));
+        _env[envName] = it->second;
+    }
+    
+    // Content-Length et Content-Type pour POST
+    if (request.getMethod() == "POST" || !request.getBody().empty()) {
+        _env["CONTENT_LENGTH"] = toString(request.getBody().size());
+        std::string contentType = request.getHeader("Content-Type");
+        if (!contentType.empty()) {
+            _env["CONTENT_TYPE"] = contentType;
+        }
+    }
+}
+
+/* void CgiHandler::setupEnvironment(const Request& request, const std::string& scriptPath) {
 	_env.clear();
 	_env["GATEWAY_INTERFACE"] = "CGI/1.1";
 	_env["SERVER_PROTOCOL"] = "HTTP/1.1";
@@ -54,9 +100,9 @@ void CgiHandler::setupEnvironment(const Request& request, const std::string& scr
 		_env["CONTENT_LENGTH"] = toString(request.getBody().size());
 		_env["CONTENT_TYPE"] = request.getHeader("Content-Type");
 	}
-}
+} */
 
-void readParseCGI(int pipe_out[2], int pid, Response& response){
+/* void readParseCGI(int pipe_out[2], int pid, Response& response){
 	char buffer[4096];
 		std::string cgiOutput;
 		ssize_t bytesRead;
@@ -93,9 +139,109 @@ void readParseCGI(int pipe_out[2], int pid, Response& response){
 		if (response.getHeaders().find("Content-Type") == response.getHeaders().end()
     	&& response.getHeaders().find("content-type") == response.getHeaders().end())
     		response.setHeader("Content-Type", "text/html");
+} */
+
+void readParseCGI(int pipe_out[2], int pid, Response& response) {
+    char buffer[4096];
+    std::string cgiOutput;
+    ssize_t bytesRead;
+    
+    // AJOUT: Timeout pour éviter les blocages
+    struct timeval timeout;
+    timeout.tv_sec = 30; // 30 secondes
+    timeout.tv_usec = 0;
+    
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(pipe_out[0], &readfds);
+    
+    while (true) {
+        int selectResult = select(pipe_out[0] + 1, &readfds, NULL, NULL, &timeout);
+        if (selectResult <= 0) {
+            break; // Timeout ou erreur
+        }
+        
+        bytesRead = read(pipe_out[0], buffer, sizeof(buffer) - 1);
+        if (bytesRead <= 0) break;
+        
+        buffer[bytesRead] = '\0'; // Sécurité
+        cgiOutput.append(buffer, bytesRead);
+    }
+    
+    close(pipe_out[0]);
+    waitpid(pid, NULL, 0);
+
+    // CORRECTION: Meilleure gestion des en-têtes CGI
+    size_t headerEnd = cgiOutput.find("\r\n\r\n");
+    if (headerEnd == std::string::npos) {
+        headerEnd = cgiOutput.find("\n\n");
+    }
+    
+    if (headerEnd != std::string::npos) {
+        std::string headersPart = cgiOutput.substr(0, headerEnd);
+        std::string body = cgiOutput.substr(headerEnd + (headersPart.find("\r\n\r\n") != std::string::npos ? 4 : 2));
+        
+        // Parse headers
+        std::vector<std::string> headerLines = ParserUtils::split(headersPart, '\n');
+        bool hasStatus = false;
+        bool hasContentType = false;
+        
+        for (size_t i = 0; i < headerLines.size(); ++i) {
+            std::string line = headerLines[i];
+            // Nettoyer les \r
+            if (!line.empty() && line[line.size()-1] == '\r')
+                line.erase(line.size()-1);
+            
+            if (line.empty()) continue;
+            
+            size_t colonPos = line.find(':');
+            if (colonPos != std::string::npos) {
+                std::string name = ParserUtils::trim(line.substr(0, colonPos));
+                std::string value = ParserUtils::trim(line.substr(colonPos + 1));
+                
+                // Gérer les en-têtes spéciaux
+                std::string nameLower = name;
+                std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+                
+                if (nameLower == "status") {
+                    // Extraire le code de statut
+                    size_t spacePos = value.find(' ');
+                    if (spacePos != std::string::npos) {
+                        int statusCode = std::atoi(value.substr(0, spacePos).c_str());
+                        std::string statusText = value.substr(spacePos + 1);
+                        response.setStatus(statusCode, statusText);
+                    } else {
+                        int statusCode = std::atoi(value.c_str());
+                        response.setStatus(statusCode, "");
+                    }
+                    hasStatus = true;
+                } else {
+                    response.setHeader(name, value);
+                    if (nameLower == "content-type") {
+                        hasContentType = true;
+                    }
+                }
+            }
+        }
+        
+        // Valeurs par défaut si non définies
+        if (!hasStatus) {
+            response.setStatus(200, "OK");
+        }
+        if (!hasContentType) {
+            response.setHeader("Content-Type", "text/html");
+        }
+        
+        response.setBody(body);
+    } else {
+        // Pas d'en-têtes séparés, traiter comme du contenu brut
+        response.setStatus(200, "OK");
+        response.setHeader("Content-Type", "text/html");
+        response.setBody(cgiOutput);
+    }
 }
 
-std::string chooseInterpreter(const std::string& scriptPath, const std::string& defaultInterpreter) {
+/* std::string chooseInterpreter(const std::string& scriptPath, const std::string& defaultInterpreter) {
 	std::string ext;
 	size_t dotPos = scriptPath.find_last_of('.');
 	if (dotPos != std::string::npos)
@@ -110,6 +256,38 @@ std::string chooseInterpreter(const std::string& scriptPath, const std::string& 
 	else if (ext == ".sh")
 		return "/bin/bash";
 	return defaultInterpreter;
+} */
+
+std::string chooseInterpreter(const std::string& scriptPath, const std::string& defaultInterpreter) {
+    std::string ext;
+    size_t dotPos = scriptPath.find_last_of('.');
+    if (dotPos != std::string::npos)
+        ext = scriptPath.substr(dotPos);
+
+    std::string interpreter;
+    if (ext == ".pl")
+        interpreter = "/usr/bin/perl";
+    else if (ext == ".php")
+        interpreter = "/usr/bin/php-cgi";
+    else if (ext == ".py")
+        interpreter = "/usr/bin/python3";
+    else if (ext == ".sh")
+        interpreter = "/bin/bash";
+    else
+        interpreter = defaultInterpreter;
+    
+    // AJOUT: Vérifier si l'interpréteur existe
+    if (!interpreter.empty() && access(interpreter.c_str(), X_OK) != 0) {
+        std::cerr << "Warning: Interpreter not found or not executable: " << interpreter << std::endl;
+        // Essayer des alternatives
+        if (ext == ".py") {
+            if (access("/usr/bin/python", X_OK) == 0) return "/usr/bin/python";
+            if (access("/bin/python3", X_OK) == 0) return "/bin/python3";
+        }
+        return ""; // Pas d'interpréteur trouvé
+    }
+    
+    return interpreter;
 }
 
 Response CgiHandler::execute(const Request& request, 

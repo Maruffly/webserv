@@ -1,4 +1,6 @@
 #include "LocationConfig.hpp"
+#include "../utils/Utils.hpp"
+
 
 LocationConfig::LocationConfig(): _clientMax(0), _autoindex(false) {}
 
@@ -126,13 +128,16 @@ std::string LocationConfig::getCgiInterpreter(const std::string& extension) cons
 }
 
 bool LocationConfig::isCgiRequest(const std::string& uri) const {
-	if (_cgiPass.empty()) return false;
-	
-	size_t lastDot = uri.find_last_of('.');
-	if (lastDot == std::string::npos) return false;
-	
-	std::string extension = uri.substr(lastDot);
-	return _cgiPass.find(extension) != _cgiPass.end();
+std::string extension = getFileExtension(uri);
+    
+    // Extensions CGI courantes
+    if (extension == ".py" || extension == ".php" || 
+        extension == ".pl" || extension == ".cgi" ||
+        extension == ".sh" || uri.find("/cgi-bin/") != std::string::npos) {
+        return true;
+    }
+    
+    return false;
 }
 
 void LocationConfig::printConfigLocation() const {
