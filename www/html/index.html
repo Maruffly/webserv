@@ -78,6 +78,29 @@
             <a href="/delete-test.html">Test DELETE</a>
         </div>
 
+        <h3>Quick Upload (POST)</h3>
+        <form id="quickUpload" action="/uploads/" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" required>
+            <button type="submit">Upload</button>
+        </form>
+        <small>The file will be saved under <code>/uploads/</code>.</small>
+        <pre id="quickOut" style="background:#f6f8fa;padding:10px;border-radius:6px;overflow:auto;margin-top:10px"></pre>
+        <script>
+        const qf = document.getElementById('quickUpload');
+        const qo = document.getElementById('quickOut');
+        qf.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            qo.textContent = 'Uploading...';
+            try {
+                const r = await fetch('/uploads/', { method: 'POST', body: new FormData(qf) });
+                const text = await r.text();
+                qo.textContent = 'Status: ' + r.status + ' ' + (r.statusText||'') + '\n' + text;
+            } catch (err) {
+                qo.textContent = 'Error: ' + err;
+            }
+        });
+        </script>
+
         <div class="info">
             <h3>Features Configured:</h3>
             <ul>

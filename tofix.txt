@@ -1,0 +1,276 @@
+Voici la réécriture en français, structurée et actionnable selon le sujet et la grille d’évaluation.
+
+Manques Et Corrections Nécessaires
+
+Boucle d’événements:
+Un seul select/poll/epoll pour toutes les I/O, y compris les sockets d’écoute. Actuellement chaque serveur tourne séquentiellement avec son propre époll.
+Une seule lecture et une seule écriture par client et par itération de la boucle. Le recv en boucle n’est pas conforme.
+Aucune lecture/écriture hors poll/epoll. Gérer EPOLLIN/EPOLLOUT, les écritures partielles et la mise en tampon.
+Interdiction de tester errno après read/write. L’état vient de poll.
+
+Multi-serveurs / multi-ports:
+Écoute simultanée de plusieurs ports sur une seule boucle.
+Sélection de serveur par Host/server_name avec serveur par défaut (premier pour host:port).
+Empêcher le double bind du même ip:port; grouper les serveurs du même couple host:port.
+
+HTTP / conformité:
+Redirections (directive de type return 301/302/307) manquantes.
+Pages d’erreur custom (error_page) non servies (fallback seulement).
+Méthode HEAD absente.
+Écritures partielles non gérées (suppose un seul send).
+Index par location ignoré (utilise seulement l’index serveur pour répertoires).
+
+CGI:
+Absence de chdir vers le dossier du script.
+Pas de timeout/kill pour CGI bloqué.
+Variables d’environnement incomplètes (REQUEST_URI, SERVER_NAME, SERVER_PORT, REMOTE_ADDR, etc.).
+Pipes bloquants et non surveillés par epoll (risque de blocage).
+Fuites possibles (utilisation de strdup non libéré sur certains chemins).
+
+Uploads:
+Pas de directive dédiée (upload_store) pour définir où sauvegarder; comportement implicite.
+Politique de création de dossiers non définie; gestion d’erreurs basique.
+
+Robustesse:
+Keep-alive non géré (ok), mais garantir aucune connexion pendante; timeouts cohérents.
+Logs: strerror(errno) utilisé hors contexte de syscall; risque de message non pertinent.
+
+Parseur de config:
+listen multiple non réellement exploité (écrasé par _port/_host).
+Pas de directives return (redirect) ni upload_store.
+error_page parsé mais pas appliqué au rendu.
+
+Divers:
+include/Webserv.hpp: macros couleurs mal définies.
+srcs/main.cpp: double parsing/print, puis exécution séquentielle (bloquant).
+
+
+Cas Limites À Prévoir
+
+Chunked avec extensions et trailers; taille cumulée vs client_max_body_size.
+POST sans Content-Length ni Transfer-Encoding (répondre 411 de préférence).
+Traversée de répertoires (déjà normalisée; rester strict).
+Clients lents: lecture/écriture partielle, ne jamais bloquer; bufferiser + EPOLLOUT.
+HEAD: mêmes en-têtes que GET, sans corps.
+CGI: scripts lents/bloqués, sorties sans headers, erreurs; timeouts indispensables.
+Host absent: utiliser serveur par défaut du socket d’écoute.
+
++++
+
+Plan D’Action
+
+Boucle Unifiée
+Créer une boucle époll unique:
+Ouvrir tous les sockets d’écoute en non-bloquant; les enregistrer sur un même époll (niveau, pas edge).
+Un seul epoll_wait; accepter sur tous les listen-fds; une lecture max par client et par itération.
+Mise en tampon des réponses; activer EPOLLOUT et effectuer une seule écriture partielle par itération jusqu’à complétion; désactiver EPOLLOUT quand fini.
+Ne jamais inspecter errno après read/write; s’en tenir aux événements.
+
+Refactor main
+Parser tous les serveurs, créer tous les sockets d’écoute, puis lancer UNE boucle qui gère tout. Supprimer l’exécution séquentielle.
+
+Sélection De Serveur (Host)
+Associer chaque connexion au listen-fd utilisé.
+Sélectionner le serveur par Host:port parmi ce groupe; par défaut, le premier serveur du groupe si pas de match ou Host manquant.
+Une seule écoute par ip:port, même s’il y a plusieurs blocs server correspondants.
+
+Routage HTTP
+Fichiers statiques:
+Utiliser l’index de la location si présent; sinon celui du serveur.
+Pour les dossiers: autoindex on → listing; off → index sinon 403.
+
+Méthodes:
+Respecter limit_except/méthodes autorisées; renvoyer 405 avec Allow.
+Implémenter HEAD.
+
+Redirections:
+Ajouter directive return <code> <url>; en location; émettre Location + petit corps HTML.
+
+
+Pages D’erreur
+Appliquer error_page (serveur/location) lors des statuts d’erreur; sinon fallback HTML par défaut.
+
+Corps & Limites
+Imposer client_max_body_size en streaming (dès dépassement → 413).
+Chunked: décoder, cumuler et vérifier la limite.
+POST sans longueur et non chunked: 411 Length Required (ou politique documentée).
+
+CGI Durci
+Enfant:
+chdir vers le dossier du script; execve avec interpréteur adapté.
+Variables env complètes: REQUEST_METHOD, REQUEST_URI, QUERY_STRING, SERVER_PROTOCOL, SERVER_SOFTWARE, SERVER_NAME, SERVER_PORT, REMOTE_ADDR, PATH_INFO, SCRIPT_NAME, SCRIPT_FILENAME, CONTENT_LENGTH, CONTENT_TYPE…
+
+I/O:
+Pipes non-bloquants, enregistrés sur époll; écrire le corps vers stdin du CGI au fil de l’eau; lire stdout/err sans blocage.
+
+Timeout:
+Timer par CGI (ex. 5–10s); si expiré → tuer le child, renvoyer 504.
+
+Sortie:
+Si headers présents, les parser; sinon traiter tout en corps; Content-Length optionnel → EOF marque la fin.
+
+Mémoire:
+Libérer args/env du parent; sécuriser les chemins d’erreur.
+
+Uploads
+Directive upload_store <chemin> en location:
+Sauvegarder vers ce dossier (normalisation stricte; sanitisation des noms).
+Sans upload_store et requête vers un dossier → 400 clair.
+201 si création, 200 si écrasement; Location best-effort.
+
+Timeouts & Disponibilité
+Garder/renforcer:
+Timeout d’inactivité et de lecture; fermer proprement.
+Pas de connexions pendantes; pas de fuite mémoire; stabilité sous siege -b.
+Journalisation propre (capturer errno immédiatement après l’appel fautif).
+
+
+Parseur De Config
+Ajouter:
+return (redirection) en location.
+upload_store en location.
+Support propre de plusieurs listen par serveur ou, plus simple, plusieurs blocs server et un seul bind par ip:port.
+Résolution des chemins:
+Continuer à résoudre relativement au dossier du fichier de config (déjà présent).
+Erreurs:
+Validation cohérente; messages précis.
+
+
+Jeux De Tests & Démo
+Fournir configs:
+Multi-ports, multi server_name (tester avec curl --resolve).
+Pages d’erreurs custom 404/50x.
+Routes: autoindex on/off, index par location, redirection, upload.
+CGI .py/.php/.pl/.sh (dossiers www/html/cgi-bin déjà prêts).
+
+
+Tests:
+curl (GET/POST/DELETE/HEAD), telnet brut, uploads (multipart et brut).
+Redirections, erreurs, répertoires, grosses charges (siege), pas de fuites mémoire.
+
+
+Nettoyage
+Corriger macros couleurs dans include/Webserv.hpp ou les retirer.
+Supprimer le double parsing et l’exécution séquentielle dans srcs/main.cpp.
+Sockets d’écoute en non-bloquant; clients en mode niveau (pas EPOLLET).
+Retirer l’usage d’errno après I/O; pilotage par événements.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+1. Boucle d'événements unifiée
+text
+
+Crée une boucle epoll unique qui gère tous les sockets d'écoute et connexions client. Implémente:
+- Ouverture de tous les sockets d'écoute en mode non-bloquant
+- Enregistrement de tous les sockets sur un seul epoll (niveau trigger)
+- Gestion de EPOLLIN/EPOLLOUT avec une seule lecture/écriture par client par itération
+- Bufferisation des réponses avec activation/désactivation dynamique de EPOLLOUT
+- Suppression complète des tests errno après read/write
+OK________________
+
+2. Refactoring du main
+
+Refactorise srcs/main.cpp pour:
+- Parser tous les serveurs configurés
+- Créer tous les sockets d'écoute
+- Lancer une seule boucle événementielle qui gère tout
+- Supprimer l'exécution séquentielle bloquante
+- Éliminer le double parsing/affichage
+OK________________
+
+
+3. Sélection de serveur par hostname
+
+Implémente la sélection de serveur basée sur le header Host:
+- Associe chaque connexion au listen-fd utilisé
+- Sélectionne le serveur approprié par host:port parmi le groupe
+- Utilise le premier serveur du groupe comme défaut si Host manquant ou non match
+- Empêche le double bind sur le même ip:port
+
+4. Conformité HTTP améliorée
+
+Améliore la conformité HTTP:
+- Implémente la méthode HEAD (mêmes headers que GET sans body)
+- Ajoute la directive return <code> <url> pour les redirections
+- Gère les pages d'erreur custom (error_page) avec fallback
+- Respecte limit_except et renvoie 405 avec header Allow
+- Utilise l'index de location si présent, sinon index du serveur
+
+5. Gestion robuste du body
+
+Implémente une gestion robuste des corps de requête:
+- Vérifie client_max_body_size en streaming (413 si dépassement)
+- Décode le transfer-encoding chunked avec gestion des extensions/trailers
+- Renvoie 411 pour POST sans Content-Length ni Transfer-Encoding
+- Gère les clients lents avec bufferisation et EPOLLOUT
+
+6. CGI durci
+text
+
+Renforce l'implémentation CGI:
+- chdir vers le dossier du script avant execve
+- Ajoute toutes les variables d'environnement requises
+- Implémente un timeout (5-10s) avec kill du processus enfant
+- Utilise des pipes non-bloquants enregistrés sur epoll
+- Parse les headers de sortie CGI et gère les cas d'erreur
+- Corrige les fuites mémoire (strdup non libérés)
+
+7. Système d'uploads
+text
+
+Implémente le système d'uploads:
+- Ajoute la directive upload_store <chemin> en location
+- Sanitise les noms de fichiers et normalise les chemins
+- Gère la politique de création de dossiers
+- Renvoie 201 pour création, 200 pour écrasement
+- Sans upload_store vers dossier → 400
+
+8. Timeouts et robustesse
+text
+
+Améliore la robustesse:
+- Implémente les timeouts d'inactivité et de lecture
+- Garantit aucune connexion pendante
+- Corrige la journalisation (capture errno immédiatement après syscall)
+- Teste avec siege -b pour la stabilité
+
+9. Parseur de configuration
+text
+
+Améliore le parseur de configuration:
+- Ajoute support pour return (redirection) en location
+- Ajoute support pour upload_store en location
+- Valide cohéremment les configurations
+- Gère plusieurs blocs server avec résolution de chemins relative
+
+10. Nettoyage et corrections
+text
+
+Effectue le nettoyage final:
+- Corrige les macros couleurs dans include/Webserv.hpp
+- Passe tous les sockets en mode non-bloquant
+- Supprime toute utilisation d'errno après I/O
+- Utilise EPOLLLEVEL (pas edge triggering)
+- Vérifie l'absence de fuites mémoire
+
+11. Tests de validation
+text
+
+Crée des jeux de tests pour valider:
+- Multi-ports et multi server_name (curl --resolve)
+- Pages d'erreurs custom 404/50x
+- Routes: autoindex, index location, redirections, uploads
+- CGI avec différents langages (.py, .php, .pl, .sh)
+- Tests de charge avec siege et vérification fuites mémoire

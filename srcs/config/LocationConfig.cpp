@@ -2,7 +2,14 @@
 #include "../utils/Utils.hpp"
 
 
-LocationConfig::LocationConfig(): _clientMax(0), _autoindex(false) {}
+// Note: respecter l'ordre de déclaration dans le header pour éviter -Wreorder (avec -Werror)
+LocationConfig::LocationConfig()
+    : _clientMax(0)
+    , _autoindex(false)
+    , _uploadCreateDirs(false)
+    , _hasReturn(false)
+    , _returnCode(0)
+{}
 
 LocationConfig::~LocationConfig(){}
 
@@ -181,8 +188,23 @@ void LocationConfig::printConfigLocation() const {
 		}
 		std::cout << std::endl;
 	}
-	if (!_upload.empty())
-		std::cout << " Upload: " << _upload << std::endl;
 
+	if (_hasReturn) {
+		std::cout << "  Return: " << _returnCode << " " << _returnUrl << std::endl;
+	}
+	if (!_uploadStore.empty()) {
+		std::cout << "  Upload store: " << _uploadStore << std::endl;
+		std::cout << "  Upload create dirs: " << (_uploadCreateDirs?"on":"off") << std::endl;
+	}
 	std::cout << "  ===========================" << std::endl;
 }
+
+void LocationConfig::setReturn(int code, const std::string& url) { _hasReturn = true; _returnCode = code; _returnUrl = url; }
+bool LocationConfig::hasReturn() const { return _hasReturn; }
+int  LocationConfig::getReturnCode() const { return _returnCode; }
+const std::string& LocationConfig::getReturnUrl() const { return _returnUrl; }
+
+void LocationConfig::setUploadStore(const std::string& path) { _uploadStore = path; }
+void LocationConfig::setUploadCreateDirs(const std::string& onoff) { _uploadCreateDirs = (onoff == "on"); }
+const std::string& LocationConfig::getUploadStore() const { return _uploadStore; }
+bool LocationConfig::getUploadCreateDirs() const { return _uploadCreateDirs; }

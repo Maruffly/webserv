@@ -93,6 +93,12 @@ void Server::bindSocket()
 
 void Server::startListening() 
 {
+	// Met le socket d'écoute en non-bloquant pour respecter la boucle I/O non bloquante
+	int flags = fcntl(_serverSocket, F_GETFL, 0);
+	if (flags != -1) {
+		fcntl(_serverSocket, F_SETFL, flags | O_NONBLOCK);
+	}
+
 	if (listen(_serverSocket, BACKLOG) < 0) {
 		close(_serverSocket);
 		throw std::runtime_error("Listen failed");
@@ -110,97 +116,8 @@ std::string Server::getHost() const { return _host; }
 
 void Server::run() 
 {
-    try 
-	{
-        epollManager manager(_serverSocket, _config);
-        manager.run();
-    } 
-	catch (const std::exception& e) { ERROR("epollManager failed: " + std::string(e.what())); }
+    // Dans l'architecture actuelle, la boucle epoll unifiée est lancée depuis main
+    // pour gérer tous les sockets d'écoute simultanément. Cette méthode est donc
+    // conservée pour compatibilité mais ne lance plus de boucle propre.
+    INFO("Server::run inutilise: la boucle epoll est lancee depuis main");
 }
-
-
-// void Server::run() 
-// {
-//     struct sockaddr_in clientAddress;
-//     socklen_t clientAddrLen = sizeof(clientAddress);
-//     char buffer[BUFFER_SIZE];
-    
-//     INFO("Waiting for connections...");
-    
-//     while (true) 
-// 	{
-//         int clientSocket = accept(_serverSocket, (struct sockaddr*)&clientAddress, &clientAddrLen);
-//         if (clientSocket < 0) 
-// 		{
-//             ERROR("Accept failed");
-//             continue;
-//         }
-        
-//         char clientIP[INET_ADDRSTRLEN];
-//         inet_ntop(AF_INET, &clientAddress.sin_addr, clientIP, INET_ADDRSTRLEN);
-//         int clientPort = ntohs(clientAddress.sin_port);
-        
-//         LOG("New connection accepted from " + std::string(clientIP) + ":" + toString(clientPort));
-        
-//         // reading request
-//         std::string requestData;
-//         ssize_t bytesRead = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
-        
-//         if (bytesRead > 0) 
-// 		{
-//             buffer[bytesRead] = '\0';
-//             requestData = buffer;
-            
-//             std::cout << "📨 Raw request received:" << std::endl;
-//             std::cout << "------------------------" << std::endl;
-//             std::cout << requestData << std::endl;
-//             std::cout << "------------------------" << std::endl;
-            
-//             // parse request
-//             Request request(requestData);
-//             if (request.isComplete()) 
-// 			{
-//                 request.print(); // print full parsing
-                
-//                 // print parsed infos
-//                 std::cout << "🔍 Parsed information:" << std::endl;
-//                 std::cout << "Méthode: [" << request.getMethod() << "]" << std::endl;
-//                 std::cout << "Chemin: [" << request.getUri() << "]" << std::endl;
-//                 std::cout << "Version: [" << request.getVersion() << "]" << std::endl;
-//                 std::cout << "Host: [" << request.getHeader("host") << "]" << std::endl;
-                
-//                 // print headers
-//                 std::string userAgent = request.getHeader("user-agent");
-//                 if (!userAgent.empty()) 
-//                     std::cout << "User-Agent: [" << userAgent << "]" << std::endl;
-                
-//                 std::string contentType = request.getHeader("content-type");
-//                 if (!contentType.empty())
-//                     std::cout << "Content-Type: [" << contentType << "]" << std::endl;
-                
-//                 std::cout << "------------------------" << std::endl;
-                
-//             } 
-// 			else 
-//                 LOG("Incomplete request received");
-            
-//             // http response
-// 			Response	response;
-// 			response.setStatus(200, "OK");
-// 			response.setHeader("Content-Type", "text/html");
-// 			response.setHeader("Connection", "close");
-// 			response.setBody("<h1>Hello from webserv!</h1>");
-            
-//             send(clientSocket, response.getResponse().c_str(), response.getResponse().length(), 0);
-//             LOG("Response sent to client");
-            
-//         } 
-// 		else if (bytesRead == 0) 
-//             LOG("Client disconnected");
-// 		else 
-//             ERROR("recv failed");
-        
-//         close(clientSocket);
-//         LOG("Connection closed");
-//     }
-// }

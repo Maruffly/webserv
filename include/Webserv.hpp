@@ -1,12 +1,10 @@
 #pragma once
 
-#define GREEN = \033[32m
-#define RED = \033[31m
-#define BLINK = \033[5m
-#define RESET = \033[0m
+// ANSI color macros were previously misdefined and unused; removed to avoid confusion.
 
 // system
 #include <map>
+#include <set>
 #include <iostream>
 #include <string>
 #include <cstdlib>
@@ -39,9 +37,10 @@
 #define MAX_REQUEST_SIZE 524288000
 #define MAX_CLIENTS 100 
 #define CONNECTION_TIMEOUT 30
-#define READ_TIMEOUT 15
+#define READ_TIMEOUT 12
 #define KEEP_ALIVE_TIMEOUT 10 
 #define CLEANUP_INTERVAL 5
+#define CGI_TIMEOUT 10
 
 template <typename T>
 std::string toString(const T &value) 
@@ -56,7 +55,12 @@ inline void LOG(const std::string& msg)
     std::cout << "📝 " << msg << std::endl;
 }
 
-inline void ERROR(const std::string& msg) 
+inline void ERROR(const std::string& msg)
+{
+    std::cerr << "❌ ERROR: " << msg << std::endl;
+}
+
+inline void ERROR_SYS(const std::string& msg)
 {
     std::cerr << "❌ ERROR: " << msg << " (" << strerror(errno) << ")" << std::endl;
 }

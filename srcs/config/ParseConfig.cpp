@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <sstream>
 
 
 ParseConfig::ParseConfig() : _pos(0) {}
@@ -181,17 +182,27 @@ std::string ParseConfig::resolvePathRelativeToConfig(const std::string& path) co
 
 Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) {
     Directive result;
-    std::string line = ParserUtils::trim(rawLine);
+    // Nettoyer les commentaires par ligne et concaténer les lignes utiles
+    std::stringstream ss(rawLine);
+    std::string accum;
+    std::string one;
+    while (std::getline(ss, one)) {
+        size_t h = one.find('#');
+        if (h != std::string::npos) one = one.substr(0, h);
+        one = ParserUtils::trim(one);
+        if (!one.empty()) {
+            if (!accum.empty()) accum += " ";
+            accum += one;
+        }
+    }
+    accum = ParserUtils::trim(accum);
+    if (accum.empty()) return result;
 
-    if (line.empty())
-        return result;
-    std::vector<std::string> token = ParserUtils::split(line, ' ');
-    if (token.empty())
-        return result;
+    std::vector<std::string> token = ParserUtils::split(accum, ' ');
+    if (token.empty()) return result;
     result.name = token[0];
     for (size_t i = 1; i < token.size(); ++i) {
-        if (!result.value.empty())
-            result.value += " ";
+        if (!result.value.empty()) result.value += " ";
         result.value += token[i];
     }
     result.value = ParserUtils::trim(result.value);
@@ -199,11 +210,21 @@ Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) {
 }
 
 void ParseConfig::parseLocationDirectives(const std::string& blockContent, LocationConfig& location){
-	std::string trimmedContent = ParserUtils::trim(blockContent);
-    if (!trimmedContent.empty() && trimmedContent[trimmedContent.length() - 1] == ';') {
-        trimmedContent = trimmedContent.substr(0, trimmedContent.length() - 1);
+    // Nettoyer le contenu: retirer les commentaires par ligne et concaténer
+    std::stringstream ss(blockContent);
+    std::string cleaned;
+    std::string line;
+    while (std::getline(ss, line)) {
+        // couper à '#'
+        size_t h = line.find('#');
+        if (h != std::string::npos) line = line.substr(0, h);
+        line = ParserUtils::trim(line);
+        if (line.empty()) continue;
+        if (!cleaned.empty()) cleaned += '\n';
+        cleaned += line;
     }
-	std::vector<std::string> directives = ParserUtils::split(blockContent, ';');
+    // Découper en directives par ';'
+    std::vector<std::string> directives = ParserUtils::split(cleaned, ';');
 
 	for (size_t i = 0; i < directives.size(); ++i)
 	{
@@ -290,12 +311,27 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 					location.addAllowedMethod(methods[j]);
 					}
 			}
-			else if (directive.name == "upload") {
-				std::string uploadPath = ParserUtils::trim(directive.value);
-				uploadPath = resolvePathRelativeToConfig(uploadPath);
-				if (!ValidationUtils::isValidPath(uploadPath))
-					throw ParseConfigException("' - Invalid upload path, must be absolute or valid relative", "upload", directives[i]);
-				location.setPathUpload(uploadPath);
+			else if (directive.name == "upload_store") {
+				std::string p = ParserUtils::trim(directive.value);
+				p = expandLocalUserPath(p);
+				p = resolvePathRelativeToConfig(p);
+				location.setUploadStore(p);
+			}
+			else if (directive.name == "upload_create_dirs") {
+				if (directive.value != "on" && directive.value != "off")
+					throw ParseConfigException("' - upload_create_dirs must be 'on' or 'off'", "upload_create_dirs", directives[i]);
+				location.setUploadCreateDirs(ParserUtils::trim(directive.value));
+			}
+			else if (directive.name == "return") {
+				// Syntaxe: return <code> <url>;
+				std::vector<std::string> parts = ParserUtils::split(directive.value, ' ');
+				if (parts.size() < 2)
+					throw ParseConfigException("return requires <code> <url>", "return", directives[i]);
+				int code = std::atoi(parts[0].c_str());
+				if (code < 300 || code > 399)
+					throw ParseConfigException("return code must be a 3xx code", "return", directives[i]);
+				std::string url = parts[1];
+				location.setReturn(code, url);
 			}
 			else
 				throw ParseConfigException("Unknown location directive: " + directive.name, directives[i]);
@@ -351,10 +387,16 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 	for (size_t i = 0; i < lines.size(); ++i) {
 		std::string line = ParserUtils::trim(lines[i]);
 
+		// ignorer les commentaires
+		if (!line.empty() && line[0] == '#')
+			continue;
+
 		if (line.empty() || line == "{" || line == "}" || line == "server {")
 			continue;
 		if (ParserUtils::startsWith(line, "location")) {
-			std::string locationBlock = ParserUtils::checkBrace(line, lines, i);  // i is now passed by reference
+			int idx = (int)i;
+			std::string locationBlock = ParserUtils::checkBrace(line, lines, idx);  // avance idx à la fin du bloc
+			i = (size_t)idx;
 			parseLocationBlock(locationBlock, server);
     		continue;
 		}

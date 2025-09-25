@@ -18,6 +18,8 @@ class	Response
 		void	setStatus(int code, const std::string &message);
 		void	setHeader(const std::string &name, const std::string &value);
 		void	setBody(const std::string &body);
+		size_t  getBodyLength() const;
+
 		int	getStatusCode() const;
 		std::string	getBody() const;
 		std::string	getResponse() const;

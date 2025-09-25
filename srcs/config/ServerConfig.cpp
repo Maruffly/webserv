@@ -1,9 +1,29 @@
 #include "ServerConfig.hpp"
+#include "../../include/Webserv.hpp"
 #include "ParseConfigException.hpp"
 #include "../utils/ValidationUtils.hpp"
 
 ServerConfig::ServerConfig(){}
 ServerConfig::~ServerConfig(){}
+
+// Definition manquante qui provoquait une erreur de l’éditeur de liens
+ServerConfig ServerConfig::operator=(const ServerConfig& src)
+{
+    if (this != &src)
+    {
+        this->_serverName = src._serverName;
+        this->_host = src._host;
+        this->_port = src._port;
+        this->_root = src._root;
+        this->_index = src._index;
+        this->_listen = src._listen;
+        this->_clientMax = src._clientMax;
+        this->_autoindex = src._autoindex;
+        this->_errorPages = src._errorPages;
+        this->_locations = src._locations;
+    }
+    return *this;
+}
 
 void ServerConfig::setServerName(const std::string& serverName){
 	if (serverName.size() > MAXLEN)
@@ -28,25 +48,32 @@ void ServerConfig::setIndex(const std::string& index){
 }
 
 void ServerConfig::setListen(const std::string& listenStr){
-	std::vector<std::string> token = ParserUtils::split(listenStr, ' ');
-	
-	std::string address = token[0];
-		if (address.find(':') != std::string::npos) {
-			// Format IP:PORT
-			std::vector<std::string> addrtoken = ParserUtils::split(address, ':');
-			if (addrtoken.size() == 2 || _port > 0) {
-				_host = addrtoken[0];
-				_port = std::atoi(addrtoken[1].c_str());
-				if (_port < 0 || _port > 65535)
-					throw ParseConfigException("Invalid port number : must be inferior to 65535", "autoindex");
-			}
-			} else {
-				// Format PORT only
-				_host = "0.0.0.0";
-				_port = std::atoi(address.c_str());
-				if (_port < 0 || _port > 65535)
-					throw ParseConfigException("Invalid port number - must be a positive integer between 0 and 65535", "listen");
-			}
+    std::vector<std::string> token = ParserUtils::split(listenStr, ' ');
+    
+    std::string address = token[0];
+        if (address.find(':') != std::string::npos) {
+            // Format IP:PORT
+            std::vector<std::string> addrtoken = ParserUtils::split(address, ':');
+            if (addrtoken.size() == 2 || _port > 0) {
+                _host = addrtoken[0];
+                _port = std::atoi(addrtoken[1].c_str());
+                if (_port < 0 || _port > 65535)
+                    throw ParseConfigException("Invalid port number : must be inferior to 65535", "autoindex");
+                // store normalized listen entry
+                std::string key = _host + std::string(":") + toString(_port);
+                if (std::find(_listen.begin(), _listen.end(), key) == _listen.end())
+                    _listen.push_back(key);
+            }
+            } else {
+                // Format PORT only
+                _host = "0.0.0.0";
+                _port = std::atoi(address.c_str());
+                if (_port < 0 || _port > 65535)
+                    throw ParseConfigException("Invalid port number - must be a positive integer between 0 and 65535", "listen");
+                std::string key = _host + std::string(":") + toString(_port);
+                if (std::find(_listen.begin(), _listen.end(), key) == _listen.end())
+                    _listen.push_back(key);
+            }
 }
 
 void ServerConfig::setClientMax(const size_t clientMax){
@@ -62,15 +89,15 @@ void ServerConfig::setAutoindex(const std::string& autoindex){
 	_autoindex = autoIndex;
 }
 
-const std::string& ServerConfig::getServerName(){
+const std::string& ServerConfig::getServerName() const{
 	return _serverName;
 }
 
-const std::string& ServerConfig::getHost(){
+const std::string& ServerConfig::getHost() const{
 	return _host;
 }
 
-int ServerConfig::getPort(){
+int ServerConfig::getPort() const{
 	return _port;
 }
 
@@ -82,7 +109,7 @@ const std::string& ServerConfig::getIndex() const{
 	return _index;
 }
 
-const std::vector<std::string>& ServerConfig::getListen(){
+const std::vector<std::string>& ServerConfig::getListen() const{
 	return _listen;
 }
 
@@ -90,7 +117,7 @@ size_t ServerConfig::getClientMax() const{
 	return _clientMax;
 }
 
-bool ServerConfig::getAutoindex(){
+bool ServerConfig::getAutoindex() const{
 	return _autoindex;
 }
 
@@ -105,7 +132,17 @@ void ServerConfig::addErrorPage(int errorCode, const std::string& path) {
 }
 
 const std::vector<LocationConfig>& ServerConfig::getLocations() const {
-	return _locations;
+    return _locations;
+}
+
+const std::map<int, std::string>& ServerConfig::getErrorPages() const {
+    return _errorPages;
+}
+
+std::string ServerConfig::getErrorPagePath(int code) const {
+    std::map<int, std::string>::const_iterator it = _errorPages.find(code);
+    if (it != _errorPages.end()) return it->second;
+    return std::string();
 }
 
 void ServerConfig::printConfig() const {
