@@ -398,7 +398,14 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
         const std::map<std::string, std::string>& cgiConfig = location->getCgiPass();
         std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension);
         if (it == cgiConfig.end()) it = cgiConfig.find(".*");
-        if (it != cgiConfig.end()) { std::string interpreter = it->second; std::string scriptPath = location->getRoot().empty() ? (config.getRoot() + uri) : (location->getRoot() + uri.substr(location->getPath().size())); CgiHandler cgi; return cgi.execute(request, scriptPath, interpreter); }
+        if (it != cgiConfig.end()) {
+            std::string scriptPath = resolveFilePath(uri, config);
+            if (!scriptPath.empty() && fileExists(scriptPath)) {
+                std::string interpreter = it->second;
+                CgiHandler cgi;
+                return cgi.execute(request, scriptPath, interpreter);
+            }
+        }
     }
     // Determine upload base path: upload_store if set, else resolve from URI
     std::string basePath = (location && !location->getUploadStore().empty()) ? location->getUploadStore() : resolveFilePath(uri, config);
@@ -489,7 +496,18 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
             response.setStatus(404, "Not Found"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("404 Not Found","Index file not found"));
         }
     } else if (location && !location->getCgiPass().empty() && isCgiFile(uri, config.getLocations())) {
-        std::string extension = getFileExtension(uri); const std::map<std::string, std::string>& cgiConfig = location->getCgiPass(); std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension); if (it == cgiConfig.end()) it = cgiConfig.find(".*"); if (it != cgiConfig.end()) { std::string interpreter = it->second; std::string scriptPath = location->getRoot() + uri; CgiHandler cgi; return cgi.execute(request, scriptPath, interpreter); }
+        std::string extension = getFileExtension(uri);
+        const std::map<std::string, std::string>& cgiConfig = location->getCgiPass();
+        std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension);
+        if (it == cgiConfig.end()) it = cgiConfig.find(".*");
+        if (it != cgiConfig.end()) {
+            std::string scriptPath = resolveFilePath(uri, config);
+            if (!scriptPath.empty() && fileExists(scriptPath)) {
+                std::string interpreter = it->second;
+                CgiHandler cgi;
+                return cgi.execute(request, scriptPath, interpreter);
+            }
+        }
         response.setStatus(400, "Bad Request"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("400 Bad Request","No CGI interpreter configured"));
     } else {
         std::string filePath = resolveFilePath(uri, config);
@@ -668,8 +686,11 @@ bool epollManager::startCgiFor(int clientFd, const Request& request, const Serve
 {
     ClientConnection &conn = _clientConnections[clientFd];
     // Resolve script path
-    std::string scriptPath = location->getRoot().empty() ? (config.getRoot() + conn.uri) : (location->getRoot() + conn.uri.substr(location->getPath().size()));
-    if (!fileExists(scriptPath)) { sendErrorResponse(clientFd, 404, "Not Found"); return false; }
+    std::string scriptPath = resolveFilePath(conn.uri, config);
+    if (scriptPath.empty() || !fileExists(scriptPath)) {
+        sendErrorResponse(clientFd, 404, "Not Found");
+        return false;
+    }
     int pin[2], pout[2]; if (pipe(pin) == -1 || pipe(pout) == -1) { return false; }
     // nonblocking
     fcntl(pin[1], F_SETFL, fcntl(pin[1], F_GETFL, 0) | O_NONBLOCK);
