@@ -31,6 +31,7 @@ class epollManager
         void handleCgiOutEvent(int pipeFd, uint32_t events);
         void handleCgiInEvent(int pipeFd, uint32_t events);
         void closeClient(int clientFd);
+        void purgeClient(int clientFd);
         void sendErrorResponse(int clientFd, int code, const std::string& message);
 
         // Per-request helpers using selected config

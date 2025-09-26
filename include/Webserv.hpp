@@ -50,22 +50,13 @@ std::string toString(const T &value)
     return oss.str();
 }
 
-inline void LOG(const std::string& msg) 
-{
-    std::cout << "📝 " << msg << std::endl;
-}
+inline void LOG(const std::string& msg) { std::cout << "[LOG] " << msg << std::endl; }
 
-inline void ERROR(const std::string& msg)
-{
-    std::cerr << "❌ ERROR: " << msg << std::endl;
-}
+inline void ERROR(const std::string& msg) { std::cerr << "[ERR] " << msg << std::endl; }
 
 inline void ERROR_SYS(const std::string& msg)
 {
-    std::cerr << "❌ ERROR: " << msg << " (" << strerror(errno) << ")" << std::endl;
+    std::cerr << "[ERR] " << msg << " (" << strerror(errno) << ")" << std::endl;
 }
 
-inline void INFO(const std::string& msg) 
-{
-    std::cout << "ℹ️  " << msg << std::endl;
-}
+inline void INFO(const std::string& msg) { std::cout << "[INF] " << msg << std::endl; }

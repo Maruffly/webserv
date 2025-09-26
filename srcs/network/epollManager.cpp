@@ -61,10 +61,11 @@ void epollManager::cleanupIdleConnections() {
         if (connIt != _clientConnections.end()) {
             double idleTime = difftime(now, connIt->second.lastActivity);
             if (idleTime > CONNECTION_TIMEOUT) {
+                std::map<int, std::string>::iterator next = bufIt;
+                ++next;
                 closeClient(clientFd);
-                _clientConnections.erase(connIt);
-                std::map<int, std::string>::iterator toErase = bufIt++;
-                _clientBuffers.erase(toErase);
+                purgeClient(clientFd);
+                bufIt = next;
                 closedCount++;
                 continue;
             }
@@ -86,10 +87,11 @@ void epollManager::cleanupIdleConnections() {
             sendErrorResponse(c.fd, 504, "Gateway Timeout");
         } else if ((!c.headersParsed || c.state == READING_BODY) && idle > READ_TIMEOUT) {
             // No keep-alive: close connections that don't progress fast enough
-            closeClient(c.fd);
+            int fd = c.fd;
             std::map<int, ClientConnection>::iterator next = it;
             ++next;
-            _clientConnections.erase(it);
+            closeClient(fd);
+            purgeClient(fd);
             it = next;
             erased = true;
         }
@@ -421,10 +423,17 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
     if (basePath.empty()) { response.setStatus(403, "Forbidden"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("403 Forbidden","Invalid upload path")); return response; }
     size_t maxBody = getEffectiveClientMax(location, config);
     if (maxBody > 0 && request.getBody().size() > maxBody) { response.setStatus(413, "Request Entity Too Large"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("413 Request Too Large","Body exceeds limit")); return response; }
-    std::string ct = request.getHeader("Content-Type"); std::string ctl = ct; for (size_t i=0;i<ctl.size();++i) ctl[i]=std::tolower(ctl[i]);
+    std::string ct = request.getHeader("Content-Type"); std::string ctl = ct; for (size_t i=0;i<ctl.size();++i) ctl[i]=std::tolower(static_cast<unsigned char>(ctl[i]));
     bool created = false;
-    if (ctl.find("multipart/form-data") == 0) { size_t bpos = ctl.find("boundary="); if (bpos == std::string::npos) { response.setStatus(400, "Bad Request"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("400 Bad Request","Missing multipart boundary")); return response; }
-        std::string boundary = ctl.substr(bpos + 9); if (!boundary.empty() && boundary[0]=='"') { size_t endq = boundary.find('"', 1); boundary = (endq==std::string::npos)?boundary.substr(1):boundary.substr(1, endq-1); }
+    if (ctl.find("multipart/form-data") == 0) {
+        size_t bpos = ctl.find("boundary=");
+        if (bpos == std::string::npos) { response.setStatus(400, "Bad Request"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("400 Bad Request","Missing multipart boundary")); return response; }
+        size_t start = bpos + 9;
+        std::string boundary = ct.substr(start);
+        size_t scPos = boundary.find(';'); if (scPos != std::string::npos) boundary = boundary.substr(0, scPos);
+        while (!boundary.empty() && (boundary[0]==' ' || boundary[0]=='\t')) boundary.erase(0,1);
+        while (!boundary.empty() && (boundary[boundary.size()-1]==' ' || boundary[boundary.size()-1]=='\t')) boundary.erase(boundary.size()-1);
+        if (!boundary.empty() && boundary[0]=='"') { size_t endq = boundary.find('"', 1); boundary = (endq==std::string::npos)?boundary.substr(1):boundary.substr(1, endq-1); }
         size_t savedCount = 0; bool anyCreated = false; std::string lastPath;
         if (!parseMultipartAndSave(request.getBody(), boundary, basePath, uri, savedCount, anyCreated, lastPath)) { response.setStatus(400, "Bad Request"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("400 Bad Request","No file parts found")); return response; }
         created = anyCreated; response.setStatus(created ? 201 : 200, created ? "Created" : "OK"); response.setHeader("Content-Type","text/html"); response.setHeader("Location", uri); response.setBody(createHtmlResponse(created?"201 Created":"200 OK", toString(savedCount) + " file(s) uploaded")); return response; }
@@ -449,7 +458,7 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
     if (method == "POST") {
         std::string cl = request.getHeader("Content-Length");
         std::string te = request.getHeader("Transfer-Encoding");
-        if (cl.empty() && te.empty()) {
+        if (cl.empty() && te.empty() && request.getBody().empty()) {
             response.setStatus(411, "Length Required");
             response.setHeader("Content-Type","text/html");
             response.setBody(createHtmlResponse("411 Length Required","Missing Content-Length or Transfer-Encoding"));
@@ -555,7 +564,6 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
     char buffer[BUFFER_SIZE];
     ssize_t bytesRead = recv(clientFd, buffer, BUFFER_SIZE, 0);
     if (bytesRead > 0) {
-        LOG("Read " + toString(bytesRead) + " bytes from client " + toString(clientFd));
         conn.buffer.append(buffer, bytesRead);
         if (conn.buffer.size() + conn.body.size() > MAX_REQUEST_SIZE) { sendErrorResponse(clientFd, 413, "Request Entity Too Large"); return; }
         if (!processConnectionData(clientFd)) { return; }
@@ -565,8 +573,7 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
             if (!conn.body.empty()) raw += std::string("Content-Length: ") + toString(conn.body.size()) + "\r\n";
             raw += "\r\n"; raw += conn.body; Request request(raw);
             if (request.isComplete()) {
-                LOG("Complete request received from client " + toString(clientFd));
-                request.print();
+                LOG("Request " + request.getMethod() + " " + request.getUri() + " fd=" + toString(clientFd));
                 const ServerConfig& cfg = _serverForClientFd[clientFd];
                 // Detect CGI route early and start async CGI if needed
                 const LocationConfig* location = findLocationConfig(conn.uri, cfg);
@@ -577,16 +584,17 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
                     Response response = createResponseForRequest(request, cfg);
                     std::string responseStr = response.getResponse();
                     std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
-                    LOG("Response ready: " + statusLine + " (" + toString(responseStr.size()) + " bytes)");
+                    LOG("Response " + statusLine + " fd=" + toString(clientFd));
                     conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
                 }
             }
             else sendErrorResponse(clientFd, 400, "Bad Request");
         } catch (...) { sendErrorResponse(clientFd, 400, "Bad Request"); }
         return;
-    } else if (bytesRead == 0) { closeClient(clientFd); }
-    else { closeClient(clientFd); }
+    }
     conn.isReading = false;
+    closeClient(clientFd);
+    purgeClient(clientFd);
 }
 
 void epollManager::handleClientWrite(int clientFd, uint32_t events)
@@ -597,12 +605,28 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
     ClientConnection &conn = it->second;
     if (!conn.hasResponse) return;
     size_t remaining = conn.outBuffer.size() - conn.outOffset;
-    if (remaining == 0) { armWriteEvent(clientFd, false); _clientBuffers[clientFd].clear(); _clientConnections.erase(clientFd); closeClient(clientFd); return; }
+    if (remaining == 0) {
+        armWriteEvent(clientFd, false);
+        closeClient(clientFd);
+        purgeClient(clientFd);
+        return;
+    }
     size_t toSend = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining; ssize_t n = send(clientFd, conn.outBuffer.data() + conn.outOffset, toSend, 0);
-    if (n > 0) { LOG("Sent " + toString(n) + " bytes to client " + toString(clientFd)); conn.outOffset += static_cast<size_t>(n); if (conn.outOffset >= conn.outBuffer.size()) { LOG("Response sent to client " + toString(clientFd)); armWriteEvent(clientFd, false); _clientBuffers[clientFd].clear(); _clientConnections.erase(clientFd); closeClient(clientFd); } return; }
+    if (n > 0) {
+        LOG("Sent " + toString(n) + " bytes to client " + toString(clientFd));
+        conn.outOffset += static_cast<size_t>(n);
+        if (conn.outOffset >= conn.outBuffer.size()) {
+            LOG("Response sent to client " + toString(clientFd));
+            armWriteEvent(clientFd, false);
+            closeClient(clientFd);
+            purgeClient(clientFd);
+        }
+        return;
+    }
     if (n < 0) { return; } // EAGAIN: wait for next EPOLLOUT
     // n == 0: peer closed
     closeClient(clientFd);
+    purgeClient(clientFd);
 }
 
 void epollManager::sendErrorResponse(int clientFd, int code, const std::string& message) 
@@ -839,6 +863,13 @@ void epollManager::finalizeCgiFor(int clientFd)
     conn.cgiRunning = false; conn.cgiPid = -1; conn.cgiOutBuffer.clear();
 }
 
+void epollManager::purgeClient(int clientFd)
+{
+    _clientBuffers.erase(clientFd);
+    _clientConnections.erase(clientFd);
+    _serverForClientFd.erase(clientFd);
+}
+
 void epollManager::closeClient(int clientFd)
 {
     std::map<int, ClientConnection>::iterator it = _clientConnections.find(clientFd);
@@ -852,6 +883,4 @@ void epollManager::closeClient(int clientFd)
     }
     epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, NULL);
     close(clientFd);
-    _clientBuffers.erase(clientFd);
-    _clientConnections.erase(clientFd);
 }
