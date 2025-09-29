@@ -2,6 +2,8 @@
 
 #include "../http/Request.hpp"
 #include "../http/Response.hpp"
+#include "../config/LocationConfig.hpp"
+#include "../config/ServerConfig.hpp"
 #include "../../include/Webserv.hpp"
 #include <sys/wait.h>
 #include "../utils/ParserUtils.hpp"
@@ -12,14 +14,16 @@ class CgiHandler {
 			std::map<std::string, std::string> _env;
 			std::string _output;
 			//int			_exitStatus;
-			void setupEnvironment(const Request& request, const std::string& scriptPath);
+			void setupEnvironment(const Request& request, const std::string& scriptPath,
+						     const LocationConfig* location, const ServerConfig& serverConfig);
 			std::vector<char*> prepareEnvArray();
 			std::vector<char*> prepareArgs(const std::string& scriptPath,  const std::string& interpreter="");
 
 	public:
 			CgiHandler();
 			~CgiHandler();
-			Response execute(const Request& request, const std::string& scriptPath, const std::string& interpreter);
+			Response execute(const Request& request, const std::string& scriptPath, const std::string& interpreter,
+						   const LocationConfig* location, const ServerConfig& serverConfig);
 };
 /* 
 void readParseCGI(int pipe_out[2], int pid, Response& response){

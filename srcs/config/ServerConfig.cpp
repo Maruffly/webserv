@@ -2,16 +2,25 @@
 #include "../../include/Webserv.hpp"
 #include "ParseConfigException.hpp"
 #include "../utils/ValidationUtils.hpp"
+#include <algorithm>
+#include <cstdlib>
 
-ServerConfig::ServerConfig(){}
+ServerConfig::ServerConfig()
+    : _host(DEFAULT_HOST)
+    , _port(DEFAULT_PORT)
+    , _root("")
+    , _index("index.html")
+    , _clientMax(0)
+    , _autoindex(false)
+{
+}
 ServerConfig::~ServerConfig(){}
 
-// Definition manquante qui provoquait une erreur de l’éditeur de liens
 ServerConfig ServerConfig::operator=(const ServerConfig& src)
 {
     if (this != &src)
     {
-        this->_serverName = src._serverName;
+        this->_serverNames = src._serverNames;
         this->_host = src._host;
         this->_port = src._port;
         this->_root = src._root;
@@ -26,9 +35,16 @@ ServerConfig ServerConfig::operator=(const ServerConfig& src)
 }
 
 void ServerConfig::setServerName(const std::string& serverName){
-	if (serverName.size() > MAXLEN)
-		throw ParseConfigException("Invalid name size", "server_name");
-	_serverName = serverName;
+	std::vector<std::string> names = ParserUtils::split(serverName, ' ');
+	for (size_t i = 0; i < names.size(); ++i) {
+		std::string candidate = ParserUtils::trim(names[i]);
+		if (candidate.empty())
+			continue;
+		if (candidate.size() > MAXLEN)
+			throw ParseConfigException("Invalid name size", "server_name");
+		if (std::find(_serverNames.begin(), _serverNames.end(), candidate) == _serverNames.end())
+			_serverNames.push_back(candidate);
+	}
 }
 
 void ServerConfig::setHost(const std::string& host){
@@ -48,32 +64,61 @@ void ServerConfig::setIndex(const std::string& index){
 }
 
 void ServerConfig::setListen(const std::string& listenStr){
-    std::vector<std::string> token = ParserUtils::split(listenStr, ' ');
-    
-    std::string address = token[0];
-        if (address.find(':') != std::string::npos) {
-            // Format IP:PORT
-            std::vector<std::string> addrtoken = ParserUtils::split(address, ':');
-            if (addrtoken.size() == 2 || _port > 0) {
-                _host = addrtoken[0];
-                _port = std::atoi(addrtoken[1].c_str());
-                if (_port < 0 || _port > 65535)
-                    throw ParseConfigException("Invalid port number : must be inferior to 65535", "autoindex");
-                // store normalized listen entry
-                std::string key = _host + std::string(":") + toString(_port);
-                if (std::find(_listen.begin(), _listen.end(), key) == _listen.end())
-                    _listen.push_back(key);
-            }
+    std::vector<std::string> tokens = ParserUtils::split(ParserUtils::trim(listenStr), ' ');
+    if (tokens.empty())
+        throw ParseConfigException("listen directive requires at least one parameter", "listen");
+
+    std::string currentHost = _host.empty() ? "0.0.0.0" : _host;
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        std::string entry = ParserUtils::trim(tokens[i]);
+        if (entry.empty())
+            continue;
+        if (entry == "default_server")
+            continue;
+
+        std::string hostCandidate = currentHost;
+        int portCandidate = -1;
+
+        size_t colon = entry.find(':');
+        if (colon != std::string::npos) {
+            hostCandidate = entry.substr(0, colon);
+            std::string portPart = entry.substr(colon + 1);
+            if (portPart.empty())
+                throw ParseConfigException("listen directive missing port", "listen");
+            char *endptr = NULL;
+            long portVal = std::strtol(portPart.c_str(), &endptr, 10);
+            if (*endptr != '\0' || !ValidationUtils::isValidPort(static_cast<int>(portVal)))
+                throw ParseConfigException("Invalid port number", "listen");
+            portCandidate = static_cast<int>(portVal);
+        } else {
+            char *endptr = NULL;
+            long portVal = std::strtol(entry.c_str(), &endptr, 10);
+            if (*endptr == '\0') {
+                if (!ValidationUtils::isValidPort(static_cast<int>(portVal)))
+                    throw ParseConfigException("Invalid port number", "listen");
+                portCandidate = static_cast<int>(portVal);
             } else {
-                // Format PORT only
-                _host = "0.0.0.0";
-                _port = std::atoi(address.c_str());
-                if (_port < 0 || _port > 65535)
-                    throw ParseConfigException("Invalid port number - must be a positive integer between 0 and 65535", "listen");
-                std::string key = _host + std::string(":") + toString(_port);
-                if (std::find(_listen.begin(), _listen.end(), key) == _listen.end())
-                    _listen.push_back(key);
+                hostCandidate = entry;
             }
+        }
+
+        if (hostCandidate.empty())
+            hostCandidate = "0.0.0.0";
+        if (portCandidate == -1)
+            portCandidate = (_port > 0) ? _port : DEFAULT_PORT;
+
+        std::string normalized = hostCandidate + std::string(":") + toString(portCandidate);
+        if (std::find(_listen.begin(), _listen.end(), normalized) == _listen.end())
+            _listen.push_back(normalized);
+
+        if (_listen.size() == 1) {
+            _host = hostCandidate;
+            _port = portCandidate;
+        }
+
+        currentHost = hostCandidate;
+    }
 }
 
 void ServerConfig::setClientMax(const size_t clientMax){
@@ -89,8 +134,14 @@ void ServerConfig::setAutoindex(const std::string& autoindex){
 	_autoindex = autoIndex;
 }
 
-const std::string& ServerConfig::getServerName() const{
-	return _serverName;
+std::string ServerConfig::getServerName() const{
+	if (!_serverNames.empty())
+		return _serverNames.front();
+	return _host;
+}
+
+const std::vector<std::string>& ServerConfig::getServerNames() const {
+	return _serverNames;
 }
 
 const std::string& ServerConfig::getHost() const{
@@ -147,7 +198,15 @@ std::string ServerConfig::getErrorPagePath(int code) const {
 
 void ServerConfig::printConfig() const {
 	std::cout << "=== Server Configuration ===" << std::endl;
-	std::cout << "Server Name: " << _serverName << std::endl;
+	std::cout << "Server Names: ";
+	if (_serverNames.empty()) std::cout << "(none)";
+	else {
+		for (size_t i = 0; i < _serverNames.size(); ++i) {
+			if (i) std::cout << ", ";
+			std::cout << _serverNames[i];
+		}
+	}
+	std::cout << std::endl;
 	std::cout << "Host: " << _host << std::endl;
 	std::cout << "Port: " << _port << std::endl;
 	std::cout << "Root: " << _root << std::endl;

@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
 
 namespace {
 
@@ -92,7 +93,7 @@ void attachSessionCookie(Response& response, ClientConnection& conn)
 {
     if (conn.sessionId.empty()) return;
     if (!conn.sessionShouldSetCookie) return;
-    response.setHeader("Set-Cookie", "session_id=" + conn.sessionId + "; Path=/; HttpOnly");
+    response.setHeader("Set-Cookie", "session_id=" + conn.sessionId + "; Path=/; SameSite=Lax");
     conn.sessionShouldSetCookie = false;
 }
 
@@ -280,21 +281,38 @@ bool epollManager::parseHeadersFor(int clientFd) {
         if (!group.empty()) {
             std::string hostHeader;
             if (conn.headers.find("host") != conn.headers.end()) hostHeader = conn.headers["host"];
-            // strip port if present
             size_t colon = hostHeader.find(':');
             std::string hostname = (colon == std::string::npos) ? hostHeader : hostHeader.substr(0, colon);
-            // trim
-            while (!hostname.empty() && (hostname[0]==' '||hostname[0]=='\t')) hostname.erase(0,1);
-            while (!hostname.empty() && (hostname[hostname.size()-1]==' '||hostname[hostname.size()-1]=='\t')) hostname.erase(hostname.size()-1);
+            hostname = ParserUtils::trim(hostname);
+            std::string hostnameLower = hostname;
+            for (size_t i = 0; i < hostnameLower.size(); ++i)
+                hostnameLower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(hostnameLower[i])));
+
             const ServerConfig* chosen = &group[0];
-            if (!hostname.empty()) {
+            if (!hostnameLower.empty()) {
                 for (size_t i=0;i<group.size();++i) {
-                    if (!group[i].getServerName().empty() && group[i].getServerName() == hostname) {
-                        chosen = &group[i];
-                        break;
+                    const std::vector<std::string>& aliases = group[i].getServerNames();
+                    for (size_t j = 0; j < aliases.size(); ++j) {
+                        std::string aliasLower = aliases[j];
+                        for (size_t k = 0; k < aliasLower.size(); ++k)
+                            aliasLower[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(aliasLower[k])));
+                        if (aliasLower == hostnameLower) {
+                            chosen = &group[i];
+                            goto host_selected;
+                        }
+                    }
+                    if (aliases.empty()) {
+                        std::string hostLower = group[i].getHost();
+                        for (size_t k = 0; k < hostLower.size(); ++k)
+                            hostLower[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(hostLower[k])));
+                        if (!hostLower.empty() && hostLower == hostnameLower) {
+                            chosen = &group[i];
+                            goto host_selected;
+                        }
                     }
                 }
             }
+host_selected:
             _serverForClientFd[conn.fd] = *chosen;
         }
     }
@@ -483,7 +501,7 @@ bool epollManager::parseMultipartAndSave(const std::string& body, const std::str
 
 Response epollManager::handlePost(const Request& request, const LocationConfig* location, const ServerConfig& config) {
     Response response; const std::string uri = request.getUri();
-    if (location && !location->getCgiPass().empty() && isCgiFile(uri, config.getLocations())) {
+    if (location && location->isCgiRequest(uri)) {
         std::string extension = getFileExtension(uri);
         /* std::cout << "\n\n" << extension << "\n\n" << std::endl; */
         const std::map<std::string, std::string>& cgiConfig = location->getCgiPass();
@@ -494,7 +512,7 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
             if (!scriptPath.empty() && fileExists(scriptPath)) {
                 std::string interpreter = it->second;
                 CgiHandler cgi;
-                return cgi.execute(request, scriptPath, interpreter);
+                return cgi.execute(request, scriptPath, interpreter, location, config);
             }
         }
     }
@@ -593,7 +611,7 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
             }
             response.setStatus(404, "Not Found"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("404 Not Found","Index file not found"));
         }
-    } else if (location && !location->getCgiPass().empty() && isCgiFile(uri, config.getLocations())) {
+    } else if (location && location->isCgiRequest(uri)) {
         std::string extension = getFileExtension(uri);
         const std::map<std::string, std::string>& cgiConfig = location->getCgiPass();
         std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension);
@@ -603,7 +621,7 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
             if (!scriptPath.empty() && fileExists(scriptPath)) {
                 std::string interpreter = it->second;
                 CgiHandler cgi;
-                return cgi.execute(request, scriptPath, interpreter);
+                return cgi.execute(request, scriptPath, interpreter, location, config);
             }
         }
         response.setStatus(400, "Bad Request"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("400 Bad Request","No CGI interpreter configured"));
@@ -667,7 +685,7 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
                 ensureSessionFor(conn, request);
                 // Detect CGI route early and start async CGI if needed
                 const LocationConfig* location = findLocationConfig(conn.uri, cfg);
-                bool wantsCgi = (location && !location->getCgiPass().empty() && isCgiFile(conn.uri, cfg.getLocations()));
+                bool wantsCgi = (location && location->isCgiRequest(conn.uri));
                 if (wantsCgi) {
                     if (!startCgiFor(clientFd, request, cfg, location)) { sendErrorResponse(clientFd, 500, "Internal Server Error"); }
                 } else {
@@ -828,18 +846,32 @@ bool epollManager::startCgiFor(int clientFd, const Request& request, const Serve
         // Build env
         std::vector<std::string> envStore;
         std::vector<char*> envp;
+        std::string rawUri = request.getUri();
+        std::string pathInfo = rawUri;
+        std::string queryString;
+        size_t qPos = rawUri.find('?');
+        if (qPos != std::string::npos) {
+            queryString = rawUri.substr(qPos + 1);
+            pathInfo = rawUri.substr(0, qPos);
+        }
+
+        std::string documentRoot = config.getRoot();
+        if (location && !location->getRoot().empty())
+            documentRoot = location->getRoot();
+
         envStore.push_back("GATEWAY_INTERFACE=CGI/1.1");
         envStore.push_back("SERVER_PROTOCOL=HTTP/1.1");
         envStore.push_back("SERVER_SOFTWARE=webserv/1.0");
         envStore.push_back(std::string("REQUEST_METHOD=") + request.getMethod());
         envStore.push_back(std::string("SCRIPT_FILENAME=") + scriptPath);
-        envStore.push_back(std::string("SCRIPT_NAME=") + conn.uri);
-        envStore.push_back(std::string("REQUEST_URI=") + conn.uri);
-        envStore.push_back(std::string("QUERY_STRING=") + request.getUri().substr(request.getUri().find('?')==std::string::npos?request.getUri().size():request.getUri().find('?')+1));
+        envStore.push_back(std::string("SCRIPT_NAME=") + pathInfo);
+        envStore.push_back(std::string("REQUEST_URI=") + rawUri);
+        envStore.push_back(std::string("PATH_INFO=") + pathInfo);
+        envStore.push_back(std::string("QUERY_STRING=") + queryString);
         envStore.push_back(std::string("SERVER_NAME=") + config.getServerName());
         envStore.push_back(std::string("SERVER_PORT=") + toString(config.getPort()));
         envStore.push_back(std::string("REMOTE_ADDR=") + conn.remoteAddr);
-        envStore.push_back(std::string("DOCUMENT_ROOT=") + config.getRoot());
+        envStore.push_back(std::string("DOCUMENT_ROOT=") + documentRoot);
         if (request.getMethod() == "POST") {
             envStore.push_back(std::string("CONTENT_LENGTH=") + toString(request.getBody().size()));
             envStore.push_back(std::string("CONTENT_TYPE=") + request.getHeader("Content-Type"));
@@ -849,6 +881,12 @@ bool epollManager::startCgiFor(int clientFd, const Request& request, const Serve
         for (std::map<std::string,std::string>::const_iterator it = hdrs.begin(); it != hdrs.end(); ++it) {
             std::string name = toUpperCase(replaceChars(it->first, "-", "_"));
             envStore.push_back(std::string("HTTP_") + name + std::string("=") + it->second);
+        }
+        if (location) {
+            const std::map<std::string, std::string>& cgiParams = location->getCgiParams();
+            for (std::map<std::string, std::string>::const_iterator pit = cgiParams.begin(); pit != cgiParams.end(); ++pit) {
+                envStore.push_back(pit->first + std::string("=") + pit->second);
+            }
         }
         for (size_t i=0;i<envStore.size();++i) envp.push_back(strdup(envStore[i].c_str()));
         envp.push_back(NULL);

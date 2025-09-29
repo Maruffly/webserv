@@ -17,7 +17,7 @@ Mandatory Part
 -> allows reading and writing in the same loop without blocking
 
     Ask if they use only one select() (or equivalent) and how they've managed the server to accept and the client to read/write.
--> 
+-> in main, loop.run calls the only epoll_wait
 
     The select() (or equivalent) should be in the main loop and should check file descriptors for read and write AT THE SAME TIME. If not, the grade is 0 and the evaluation process ends now.
 -> loop.run (in main) : single epoll_wait in epollManager::run    

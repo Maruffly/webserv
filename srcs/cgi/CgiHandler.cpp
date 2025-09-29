@@ -30,7 +30,8 @@ std::vector<char*> CgiHandler::prepareArgs(const std::string& scriptPath, const 
 	return args;
 }
 
-void CgiHandler::setupEnvironment(const Request& request, const std::string& scriptPath) {
+void CgiHandler::setupEnvironment(const Request& request, const std::string& scriptPath,
+                                  const LocationConfig* location, const ServerConfig& serverConfig) {
     _env.clear();
     
     // Variables CGI standard
@@ -46,17 +47,30 @@ void CgiHandler::setupEnvironment(const Request& request, const std::string& scr
     
     _env["SCRIPT_NAME"] = pathOnly;
     _env["SCRIPT_FILENAME"] = scriptPath;
-    _env["PATH_INFO"] = ""; // Ajustez selon vos besoins
+    _env["PATH_INFO"] = pathOnly;
     
     // Query string
     _env["QUERY_STRING"] = (queryPos != std::string::npos) ? uri.substr(queryPos + 1) : "";
     
     _env["REDIRECT_STATUS"] = "200";
-    _env["SERVER_NAME"] = "localhost"; // AJOUT
-    _env["SERVER_PORT"] = "8080";      // AJOUT - ajustez selon votre config
+    _env["SERVER_NAME"] = serverConfig.getServerName();
+    _env["SERVER_PORT"] = toString(serverConfig.getPort());
     
     // Variables d'environnement système importantes
     _env["PATH"] = "/usr/bin:/bin:/usr/local/bin";
+
+    std::string documentRoot = serverConfig.getRoot();
+    if (location && !location->getRoot().empty())
+        documentRoot = location->getRoot();
+    if (!documentRoot.empty())
+        _env["DOCUMENT_ROOT"] = documentRoot;
+
+    if (location) {
+        const std::map<std::string, std::string>& cgiParams = location->getCgiParams();
+        for (std::map<std::string, std::string>::const_iterator it = cgiParams.begin(); it != cgiParams.end(); ++it) {
+            _env[it->first] = it->second;
+        }
+    }
     
     // Headers HTTP
     const std::map<std::string, std::string>& headers = request.getHeaders();
@@ -293,7 +307,9 @@ std::string chooseInterpreter(const std::string& scriptPath, const std::string& 
 
 Response CgiHandler::execute(const Request& request, 
 						   const std::string& scriptPath, 
-						   const std::string& interpreter) {
+						   const std::string& interpreter,
+						   const LocationConfig* location,
+						   const ServerConfig& serverConfig) {
 	Response response;
 
 	if (!fileExists(scriptPath)) {
@@ -305,7 +321,7 @@ Response CgiHandler::execute(const Request& request,
 		return response;
 	}
 
-	setupEnvironment(request, scriptPath);
+	setupEnvironment(request, scriptPath, location, serverConfig);
 
 	int pipe_in[2], pipe_out[2];
 	if (pipe(pipe_in) == -1 || pipe(pipe_out) == -1) {

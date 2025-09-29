@@ -144,18 +144,12 @@ std::string generateDirectoryListing(const std::string& dirPath, const std::stri
 }
 
 bool isCgiFile(const std::string& uri, const std::vector<LocationConfig>& locations) {
-    // Vérifier l'extension pour CGI
-    (void)locations;
-    size_t dotPos = uri.find_last_of('.');
-    if (dotPos == std::string::npos) return false;
-    
-    std::string extension = uri.substr(dotPos + 1);
-    for (size_t i = 0; i < extension.size(); ++i) {
-        extension[i] = std::tolower(extension[i]);
+    for (size_t i = 0; i < locations.size(); ++i) {
+        const LocationConfig& loc = locations[i];
+        if (uri.find(loc.getPath()) == 0 && loc.isCgiRequest(uri))
+            return true;
     }
-    
-    // Extensions CGI courantes
-    return (extension == "php" || extension == "py" || extension == "pl" || extension == "cgi");
+    return false;
 }
 
 std::string toUpperCase(const std::string& str) {

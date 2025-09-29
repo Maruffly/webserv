@@ -135,16 +135,16 @@ std::string LocationConfig::getCgiInterpreter(const std::string& extension) cons
 }
 
 bool LocationConfig::isCgiRequest(const std::string& uri) const {
-std::string extension = getFileExtension(uri);
-    
-    // Extensions CGI courantes
-    if (extension == ".py" || extension == ".php" || 
-        extension == ".pl" || extension == ".cgi" ||
-        extension == ".sh" || uri.find("/cgi-bin/") != std::string::npos) {
-        return true;
+    if (_cgiPass.empty())
+        return false;
+
+    std::string extension = getFileExtension(uri);
+    if (!extension.empty()) {
+        if (_cgiPass.find(extension) != _cgiPass.end())
+            return true;
     }
-    
-    return false;
+
+    return _cgiPass.find(".*") != _cgiPass.end();
 }
 
 void LocationConfig::printConfigLocation() const {

@@ -9,7 +9,7 @@
 #include "LocationConfig.hpp"
 class ServerConfig {
 	private:
-			std::string	_serverName;
+			std::vector<std::string> _serverNames;
 			std::string _host;
 			int			_port;
 			std::string	_root;
@@ -38,7 +38,8 @@ class ServerConfig {
 			const std::vector<LocationConfig>& getLocations() const;
 			const std::map<int, std::string>& getErrorPages() const;
 			std::string getErrorPagePath(int code) const;
-			const std::string& getServerName() const;
+			std::string getServerName() const;
+			const std::vector<std::string>& getServerNames() const;
 			const std::string& getHost() const;
 			int getPort() const;
 			const std::string& getRoot() const;
