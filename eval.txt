@@ -38,3 +38,10 @@ Mandatory Part
     
     If any point is unclear or is not correct, the evaluation stops.
 
+
+
+
+Initialiser les membres de ServerConfig et fiabiliser setListen.
+Faire évoluer server_name/sélection Host pour accepter plusieurs alias.
+Revoir la détection CGI (basée sur la config) et compléter l’environnement (PATH_INFO, cgi_param, etc.).
+Documenter/démontrer la persistance de session (page de test, fiche dans README).
