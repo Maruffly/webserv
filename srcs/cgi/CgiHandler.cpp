@@ -1,6 +1,7 @@
 #include "CgiHandler.hpp"
 
 #include "../utils/Utils.hpp"
+#include <signal.h>
 
 CgiHandler::CgiHandler() {}
 CgiHandler::~CgiHandler() {}
@@ -349,9 +350,23 @@ Response CgiHandler::execute(const Request& request,
 		close(pipe_in[0]);
 		close(pipe_out[1]);
 		
-		// write body request into CGI
-		if (request.getMethod() == "POST") {
-			write(pipe_in[1], request.getBody().c_str(), request.getBody().size());
+		// write body request into CGI (handle partial writes)
+		if (!request.getBody().empty()) {
+			const std::string& body = request.getBody();
+			size_t written = 0;
+			while (written < body.size()) {
+				size_t chunk = body.size() - written;
+				ssize_t w = write(pipe_in[1], body.c_str() + written, chunk);
+				if (w <= 0) {
+					close(pipe_in[1]);
+					close(pipe_out[0]);
+					kill(pid, SIGKILL);
+					waitpid(pid, NULL, 0);
+					response.setStatus(500, "Internal Server Error");
+					return response;
+				}
+				written += static_cast<size_t>(w);
+			}
 		}
 		close(pipe_in[1]);
 		readParseCGI(pipe_out, pid, response);

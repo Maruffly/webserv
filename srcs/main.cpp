@@ -9,14 +9,21 @@ int main(int argc, char** argv)
 {
     try 
     {
+        std::string configPath;
         if (argc < 2) {
-            ERROR("Aucun fichier de configuration fourni. Usage: ./webserv <config.conf>");
-            return 1;
+            configPath = "./config/default.conf";
+            LOG("Aucun fichier de configuration fourni, utilisation de la configuration par défaut: " + configPath);
+        } else {
+            configPath = argv[1];
         }
-        std::string configPath = argv[1];
+
         std::ifstream test(configPath.c_str());
         if (!test.is_open()) {
-            ERROR("Impossible d'ouvrir le fichier de configuration: " + configPath);
+            if (argc < 2) {
+                ERROR("Impossible d'ouvrir le fichier de configuration par défaut: " + configPath);
+            } else {
+                ERROR("Impossible d'ouvrir le fichier de configuration: " + configPath);
+            }
             return 1;
         }
         LOG("Chargement du fichier de configuration: " + configPath);

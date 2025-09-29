@@ -8,6 +8,95 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <fstream>
+#include <sstream>
+
+namespace {
+
+struct SessionData {
+    time_t lastSeen;
+    size_t requestCount;
+};
+
+std::map<std::string, SessionData>& sessionStore()
+{
+    static std::map<std::string, SessionData> store;
+    return store;
+}
+
+std::map<std::string, std::string> parseCookies(const std::string& header)
+{
+    std::map<std::string, std::string> cookies;
+    std::stringstream ss(header);
+    std::string token;
+    while (std::getline(ss, token, ';')) {
+        size_t eq = token.find('=');
+        if (eq == std::string::npos) continue;
+        std::string name = ParserUtils::trim(token.substr(0, eq));
+        std::string value = ParserUtils::trim(token.substr(eq + 1));
+        if (!name.empty()) cookies[name] = value;
+    }
+    return cookies;
+}
+
+std::string generateSessionId(int clientFd)
+{
+    static bool seeded = false;
+    if (!seeded) {
+        std::srand(static_cast<unsigned int>(time(NULL)));
+        seeded = true;
+    }
+    std::ostringstream oss;
+    oss << std::hex << time(NULL) << "-" << std::rand() << "-" << clientFd;
+    return oss.str();
+}
+
+void ensureSessionFor(ClientConnection& conn, const Request& request)
+{
+    std::string sessionId;
+    std::string cookieHeader = request.getHeader("Cookie");
+    if (!cookieHeader.empty()) {
+        std::map<std::string, std::string> cookies = parseCookies(cookieHeader);
+        std::map<std::string, std::string>::iterator it = cookies.find("session_id");
+        if (it != cookies.end()) sessionId = it->second;
+    }
+
+    std::map<std::string, SessionData>& sessions = sessionStore();
+    bool created = false;
+    if (!sessionId.empty()) {
+        std::map<std::string, SessionData>::iterator sit = sessions.find(sessionId);
+        if (sit == sessions.end()) {
+            SessionData data;
+            data.lastSeen = time(NULL);
+            data.requestCount = 1;
+            sessions[sessionId] = data;
+            created = true;
+        } else {
+            sit->second.lastSeen = time(NULL);
+            sit->second.requestCount += 1;
+        }
+    } else {
+        sessionId = generateSessionId(conn.fd);
+        SessionData data;
+        data.lastSeen = time(NULL);
+        data.requestCount = 1;
+        sessions[sessionId] = data;
+        created = true;
+    }
+
+    conn.sessionId = sessionId;
+    conn.sessionAssigned = true;
+    conn.sessionShouldSetCookie = created;
+}
+
+void attachSessionCookie(Response& response, ClientConnection& conn)
+{
+    if (conn.sessionId.empty()) return;
+    if (!conn.sessionShouldSetCookie) return;
+    response.setHeader("Set-Cookie", "session_id=" + conn.sessionId + "; Path=/; HttpOnly");
+    conn.sessionShouldSetCookie = false;
+}
+
+}
 epollManager::epollManager(const std::vector<int>& listenFds, const std::vector< std::vector<ServerConfig> >& serverGroups)
     : _epollFd(-1)
 {
@@ -575,6 +664,7 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
             if (request.isComplete()) {
                 LOG("Request " + request.getMethod() + " " + request.getUri() + " fd=" + toString(clientFd));
                 const ServerConfig& cfg = _serverForClientFd[clientFd];
+                ensureSessionFor(conn, request);
                 // Detect CGI route early and start async CGI if needed
                 const LocationConfig* location = findLocationConfig(conn.uri, cfg);
                 bool wantsCgi = (location && !location->getCgiPass().empty() && isCgiFile(conn.uri, cfg.getLocations()));
@@ -582,6 +672,7 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
                     if (!startCgiFor(clientFd, request, cfg, location)) { sendErrorResponse(clientFd, 500, "Internal Server Error"); }
                 } else {
                     Response response = createResponseForRequest(request, cfg);
+                    attachSessionCookie(response, conn);
                     std::string responseStr = response.getResponse();
                     std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
                     LOG("Response " + statusLine + " fd=" + toString(clientFd));
@@ -611,7 +702,8 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
         purgeClient(clientFd);
         return;
     }
-    size_t toSend = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining; ssize_t n = send(clientFd, conn.outBuffer.data() + conn.outOffset, toSend, 0);
+    size_t toSend = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining;
+    ssize_t n = send(clientFd, conn.outBuffer.data() + conn.outOffset, toSend, 0);
     if (n > 0) {
         LOG("Sent " + toString(n) + " bytes to client " + toString(clientFd));
         conn.outOffset += static_cast<size_t>(n);
@@ -623,8 +715,9 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
         }
         return;
     }
-    if (n < 0) { return; } // EAGAIN: wait for next EPOLLOUT
-    // n == 0: peer closed
+
+    LOG("send() failed or connection closed for client " + toString(clientFd) + ", closing socket");
+    armWriteEvent(clientFd, false);
     closeClient(clientFd);
     purgeClient(clientFd);
 }
@@ -647,6 +740,7 @@ void epollManager::sendErrorResponse(int clientFd, int code, const std::string& 
                 response.setHeader("Server", "webserv/1.0");
                 response.setHeader("Date", getCurrentDate());
                 response.setBody(readFileContent(p));
+                attachSessionCookie(response, conn);
                 std::string rs = response.getResponse(); conn.outBuffer = rs; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
                 return;
             }
@@ -660,6 +754,7 @@ void epollManager::sendErrorResponse(int clientFd, int code, const std::string& 
     response.setHeader("Date", getCurrentDate());
     std::string body = createHtmlResponse(toString(code) + " " + message, "Error: " + message + "<br>Please try another URL.");
     response.setBody(body);
+    attachSessionCookie(response, conn);
     std::string responseStr = response.getResponse();
     std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
     LOG("Response ready: " + statusLine + " (" + toString(responseStr.size()) + " bytes)");
@@ -808,11 +903,37 @@ void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
     if (conn.body.empty()) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; return; }
     size_t remaining = conn.body.size() - conn.cgiInOffset;
     if (remaining == 0) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; return; }
-    size_t toWrite = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining; ssize_t w = write(pipeFd, conn.body.data() + conn.cgiInOffset, toWrite);
-    if (w > 0) { conn.cgiInOffset += static_cast<size_t>(w); conn.lastActivity = time(NULL); if (conn.cgiInOffset >= conn.body.size()) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; } return; }
-    if (w == -1) { return; }
-    // w == 0: stop writing
-    epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1;
+    size_t toWrite = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining;
+    ssize_t w = write(pipeFd, conn.body.data() + conn.cgiInOffset, toWrite);
+    if (w > 0) {
+        conn.cgiInOffset += static_cast<size_t>(w);
+        conn.lastActivity = time(NULL);
+        if (conn.cgiInOffset >= conn.body.size()) {
+            epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
+            close(pipeFd);
+            _cgiInToClient.erase(pipeFd);
+            conn.cgiInFd = -1;
+        }
+        return;
+    }
+
+    LOG("write() vers le CGI échoué, fermeture de la connexion client " + toString(clientFd));
+    if (conn.cgiPid > 0) {
+        kill(conn.cgiPid, SIGKILL);
+        conn.cgiPid = -1;
+    }
+    if (conn.cgiOutFd != -1) {
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, conn.cgiOutFd, NULL);
+        close(conn.cgiOutFd);
+        _cgiOutToClient.erase(conn.cgiOutFd);
+        conn.cgiOutFd = -1;
+    }
+    epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
+    close(pipeFd);
+    _cgiInToClient.erase(pipeFd);
+    conn.cgiInFd = -1;
+    conn.cgiRunning = false;
+    sendErrorResponse(clientFd, 500, "Internal Server Error");
 }
 
 static void parseCgiOutputToResponse(const std::string& cgiOutput, Response& response)
@@ -858,6 +979,7 @@ void epollManager::finalizeCgiFor(int clientFd)
         resp.setHeader("Content-Length", toString(len));
         resp.setBody("");
     }
+    attachSessionCookie(resp, conn);
     std::string out = resp.getResponse();
     conn.outBuffer = out; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
     conn.cgiRunning = false; conn.cgiPid = -1; conn.cgiOutBuffer.clear();

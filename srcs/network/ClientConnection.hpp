@@ -39,6 +39,11 @@ public:
     size_t outOffset;         // bytes already sent
     bool hasResponse;         // whether a response is ready to write
 
+    // Session management
+    bool sessionAssigned;
+    bool sessionShouldSetCookie;
+    std::string sessionId;
+
     // Virtual host selection
     const ServerConfig* server;                          // chosen vhost for this connection
     std::vector<const ServerConfig*> vhostGroup;         // servers sharing same ip:port
@@ -59,6 +64,8 @@ public:
     ClientConnection()
         : fd(-1), listenFd(-1), lastActivity(0), isReading(true), state(READING_HEADERS), headersParsed(false),
           bodyType(BODY_NONE), contentLength(0), bodyReceived(0), chunkState(CHUNK_READ_SIZE),
-            currentChunkSize(0), outOffset(0), hasResponse(false), server(NULL),
+            currentChunkSize(0), outOffset(0), hasResponse(false),
+            sessionAssigned(false), sessionShouldSetCookie(false),
+            server(NULL),
             remotePort(0), cgiRunning(false), cgiPid(-1), cgiInFd(-1), cgiOutFd(-1), cgiInOffset(0), cgiStart(0) {}
 };
