@@ -2,11 +2,29 @@
 #include "network/Server.hpp"
 #include "config/ParseConfig.hpp"
 #include "network/epollManager.hpp"
+#include <csignal>
 
+namespace {
+    epollManager* g_activeLoop = NULL;
 
+    void handleSignal(int)
+    {
+        if (g_activeLoop)
+            g_activeLoop->requestStop();
+    }
+
+    void destroyServers(std::vector<Server*>& servers)
+    {
+        for (size_t i = 0; i < servers.size(); ++i) {
+            delete servers[i];
+        }
+        servers.clear();
+    }
+}
 
 int main(int argc, char** argv)
 {
+    std::vector<Server*> servers;
     try 
     {
         std::string configPath;
@@ -26,6 +44,7 @@ int main(int argc, char** argv)
             }
             return 1;
         }
+        test.close();
         LOG("Chargement du fichier de configuration: " + configPath);
 
         ParseConfig parser;
@@ -63,7 +82,7 @@ int main(int argc, char** argv)
         }
 
         // Creer un socket d'ecoute par groupe (serveur par defaut = premier defini)
-        std::vector<Server*> servers; servers.reserve(groups.size());
+        servers.reserve(groups.size());
         std::vector<int> listenFds; listenFds.reserve(groups.size());
         std::vector< std::vector<ServerConfig> > serverGroups; serverGroups.reserve(groups.size());
 
@@ -82,17 +101,28 @@ int main(int argc, char** argv)
             }
         }
 
-        if (listenFds.empty()) { ERROR("Aucun socket d'ecoute cree"); return 1; }
+        if (listenFds.empty()) {
+            ERROR("Aucun socket d'ecoute cree");
+            destroyServers(servers);
+            return 1;
+        }
 
         // boucle epoll unique
         epollManager loop(listenFds, serverGroups);
+        g_activeLoop = &loop;
+        std::signal(SIGINT, handleSignal);
+        std::signal(SIGTERM, handleSignal);
         loop.run();
+        std::signal(SIGINT, SIG_DFL);
+        std::signal(SIGTERM, SIG_DFL);
+        g_activeLoop = NULL;
 
-        for (size_t i = 0; i < servers.size(); ++i) delete servers[i];
+        destroyServers(servers);
 
     } 
     catch (const std::exception& e) 
     {
+        destroyServers(servers);
         ERROR("Erreur fatale: " + std::string(e.what()));
         return 1;
     }

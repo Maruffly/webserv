@@ -15,6 +15,7 @@ class epollManager
         std::map<int, std::string> _clientBuffers;
         std::map<int, ClientConnection> _clientConnections;
         time_t _lastCleanup;
+        bool _running;
 
         // Multi-listen support
         std::set<int> _listenSockets;                               // all listening fds
@@ -61,5 +62,6 @@ class epollManager
         epollManager(const std::vector<int>& listenFds, const std::vector< std::vector<ServerConfig> >& serverGroups);
         ~epollManager();
 
+        void requestStop();
         void run();
 };

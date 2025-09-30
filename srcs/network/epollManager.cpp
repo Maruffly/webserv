@@ -100,6 +100,7 @@ void attachSessionCookie(Response& response, ClientConnection& conn)
 }
 epollManager::epollManager(const std::vector<int>& listenFds, const std::vector< std::vector<ServerConfig> >& serverGroups)
     : _epollFd(-1)
+    , _running(true)
 {
     _lastCleanup = time(NULL);
     _epollFd = epoll_create1(0);
@@ -129,14 +130,25 @@ epollManager::epollManager(const std::vector<int>& listenFds, const std::vector<
 
 epollManager::~epollManager()
 {
+    _running = false;
     if (_epollFd != -1)
         close(_epollFd);
-    std::map<int, std::string>::iterator bufIt;
-    for (bufIt = _clientBuffers.begin(); bufIt != _clientBuffers.end(); ++bufIt) {
-        close(bufIt->first);
+    for (std::map<int, ClientConnection>::iterator it = _clientConnections.begin(); it != _clientConnections.end(); ++it) {
+        closeClient(it->first);
     }
-    _clientBuffers.clear();
     _clientConnections.clear();
+    _clientBuffers.clear();
+    _cgiOutToClient.clear();
+    _cgiInToClient.clear();
+    _listenSockets.clear();
+    _serverForClientFd.clear();
+    _serverGroups.clear();
+    sessionStore().clear();
+}
+
+void epollManager::requestStop()
+{
+    _running = false;
 }
 
 void epollManager::cleanupIdleConnections() {
@@ -781,12 +793,22 @@ void epollManager::sendErrorResponse(int clientFd, int code, const std::string& 
 
 void epollManager::run()
 {
-    struct epoll_event events[MAX_EVENTS]; INFO("Demarrage de la boucle epoll unifiee...");
+    struct epoll_event events[MAX_EVENTS];
+    INFO("Demarrage de la boucle epoll unifiee...");
 
-    while (true) 
+    while (_running)
     {
-        int num = epoll_wait(_epollFd, events, MAX_EVENTS, -1); if (num < 0) { if (errno == EINTR) continue; ERROR_SYS("epoll_wait"); continue; } cleanupIdleConnections();
-        for (int i = 0; i < num; ++i) 
+        int num = epoll_wait(_epollFd, events, MAX_EVENTS, -1);
+        if (num < 0) {
+            if (errno == EINTR) {
+                if (!_running) break;
+                continue;
+            }
+            ERROR_SYS("epoll_wait");
+            continue;
+        }
+        cleanupIdleConnections();
+        for (int i = 0; i < num; ++i)
         {
             int fd = events[i].data.fd;
             if (_listenSockets.find(fd) != _listenSockets.end()) {
@@ -801,6 +823,7 @@ void epollManager::run()
             }
         }
     }
+    INFO("Boucle epoll arretee proprement");
 }
 
 void epollManager::armWriteEvent(int clientFd, bool enable)
