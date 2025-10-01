@@ -723,23 +723,29 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
     (void)events;
     std::map<int, ClientConnection>::iterator it = _clientConnections.find(clientFd);
     if (it == _clientConnections.end()) return;
+
     ClientConnection &conn = it->second;
     if (!conn.hasResponse) return;
+
     size_t remaining = conn.outBuffer.size() - conn.outOffset;
-    if (remaining == 0) {
+    if (remaining == 0) 
+    {
         armWriteEvent(clientFd, false);
         closeClient(clientFd);
         purgeClient(clientFd);
         return;
     }
+
     size_t toSend = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining;
     ssize_t n = send(clientFd, conn.outBuffer.data() + conn.outOffset, toSend, 0);
-    if (n > 0) {
+
+    if (n > 0) 
+    {
         LOG("Sent " + toString(n) + " bytes to client " + toString(clientFd));
         conn.outOffset += static_cast<size_t>(n);
         if (conn.outOffset >= conn.outBuffer.size()) {
             LOG("Response sent to client " + toString(clientFd));
-            armWriteEvent(clientFd, false);
+            armWriteEvent(clientFd, false); // cut the writing
             closeClient(clientFd);
             purgeClient(clientFd);
         }
@@ -758,12 +764,16 @@ void epollManager::sendErrorResponse(int clientFd, int code, const std::string& 
     Response response;
     // Try custom error_page for this server
     std::map<int, ServerConfig>::iterator sit = _serverForClientFd.find(clientFd);
-    if (sit != _serverForClientFd.end()) {
+    if (sit != _serverForClientFd.end()) 
+    {
         const ServerConfig& cfg = sit->second;
         std::string ep = cfg.getErrorPagePath(code);
-        if (!ep.empty()) {
+        if (!ep.empty()) 
+        {
             std::string p = resolveFilePath(ep, cfg);
-            if (!p.empty() && fileExists(p)) {
+
+            if (!p.empty() && fileExists(p)) 
+            {
                 response.setStatus(code, message);
                 response.setHeader("Content-Type", getContentType(p));
                 response.setHeader("Connection", "close");
@@ -946,9 +956,12 @@ void epollManager::handleCgiOutEvent(int pipeFd, uint32_t events)
     (void)events;
     int clientFd = _cgiOutToClient[pipeFd];
     ClientConnection &conn = _clientConnections[clientFd];
-    char buf[BUFFER_SIZE]; ssize_t n = read(pipeFd, buf, sizeof(buf));
+    char buf[BUFFER_SIZE]; 
+    ssize_t n = read(pipeFd, buf, sizeof(buf));
+
     if (n > 0) { conn.cgiOutBuffer.append(buf, n); conn.lastActivity = time(NULL); return; }
-    if (n == 0) {
+    if (n == 0) 
+    {
         epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiOutToClient.erase(pipeFd); conn.cgiOutFd = -1;
         finalizeCgiFor(clientFd);
         return;
@@ -966,7 +979,9 @@ void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
     if (remaining == 0) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; return; }
     size_t toWrite = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining;
     ssize_t w = write(pipeFd, conn.body.data() + conn.cgiInOffset, toWrite);
-    if (w > 0) {
+
+    if (w > 0) 
+    {
         conn.cgiInOffset += static_cast<size_t>(w);
         conn.lastActivity = time(NULL);
         if (conn.cgiInOffset >= conn.body.size()) {
@@ -979,16 +994,20 @@ void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
     }
 
     LOG("write() vers le CGI échoué, fermeture de la connexion client " + toString(clientFd));
-    if (conn.cgiPid > 0) {
+    if (conn.cgiPid > 0) 
+    {
         kill(conn.cgiPid, SIGKILL);
         conn.cgiPid = -1;
     }
-    if (conn.cgiOutFd != -1) {
+
+    if (conn.cgiOutFd != -1) 
+    {
         epoll_ctl(_epollFd, EPOLL_CTL_DEL, conn.cgiOutFd, NULL);
         close(conn.cgiOutFd);
         _cgiOutToClient.erase(conn.cgiOutFd);
         conn.cgiOutFd = -1;
     }
+
     epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
     close(pipeFd);
     _cgiInToClient.erase(pipeFd);
@@ -1000,7 +1019,9 @@ void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
 static void parseCgiOutputToResponse(const std::string& cgiOutput, Response& response)
 {
     size_t headerEnd = cgiOutput.find("\r\n\r\n");
-    if (headerEnd != std::string::npos) {
+
+    if (headerEnd != std::string::npos) 
+    {
         std::string headersPart = cgiOutput.substr(0, headerEnd);
         std::string body = cgiOutput.substr(headerEnd + 4);
         std::vector<std::string> headerLines = ParserUtils::split(headersPart, '\n');
@@ -1011,18 +1032,20 @@ static void parseCgiOutputToResponse(const std::string& cgiOutput, Response& res
             if (colonPos != std::string::npos) {
                 std::string name = ParserUtils::trim(headerLines[i].substr(0, colonPos));
                 std::string value = ParserUtils::trim(headerLines[i].substr(colonPos + 1));
-                if (toUpperCase(name) == "STATUS") {
+                if (toUpperCase(name) == "STATUS") 
+                {
                     // Format: "Status: 302 Found"
                     std::istringstream iss(value); iss >> statusCode; std::string rest; std::getline(iss, rest); if (!rest.empty() && rest[0]==' ') rest.erase(0,1); statusText = rest.empty()?"":rest;
-                } else {
+                } 
+                else 
                     response.setHeader(name, value);
-                }
             }
         }
         response.setStatus(statusCode, statusText.empty()?"OK":statusText);
         response.setBody(body);
         if (response.getHeaders().find("Content-Type") == response.getHeaders().end()) response.setHeader("Content-Type", "text/html");
-    } else {
+    } else
+    {
         response.setStatus(200, "OK"); response.setHeader("Content-Type", "text/html"); response.setBody(cgiOutput);
     }
 }

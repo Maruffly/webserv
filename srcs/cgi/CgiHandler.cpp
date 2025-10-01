@@ -91,7 +91,8 @@ void CgiHandler::setupEnvironment(const Request& request, const std::string& scr
 }
 
 
-void readParseCGI(int pipe_out[2], int pid, Response& response) {
+void readParseCGI(int pipe_out[2], int pid, Response& response) 
+{
     char buffer[4096];
     std::string cgiOutput;
     ssize_t bytesRead;
@@ -105,11 +106,10 @@ void readParseCGI(int pipe_out[2], int pid, Response& response) {
     FD_ZERO(&readfds);
     FD_SET(pipe_out[0], &readfds);
     
-    while (true) {
+    while (true) 
+    {
         int selectResult = select(pipe_out[0] + 1, &readfds, NULL, NULL, &timeout);
-        if (selectResult <= 0) {
-            break; // Timeout ou erreur
-        }
+        if (selectResult <= 0) break; // Timeout or error
         
         bytesRead = read(pipe_out[0], buffer, sizeof(buffer) - 1);
         if (bytesRead <= 0) break;
@@ -121,13 +121,13 @@ void readParseCGI(int pipe_out[2], int pid, Response& response) {
     close(pipe_out[0]);
     waitpid(pid, NULL, 0);
 
-    // CORRECTION: Meilleure gestion des en-têtes CGI
+    // handling CGI headers
     size_t headerEnd = cgiOutput.find("\r\n\r\n");
-    if (headerEnd == std::string::npos) {
+    if (headerEnd == std::string::npos)
         headerEnd = cgiOutput.find("\n\n");
-    }
     
-    if (headerEnd != std::string::npos) {
+    if (headerEnd != std::string::npos) 
+    {
         std::string headersPart = cgiOutput.substr(0, headerEnd);
         std::string body = cgiOutput.substr(headerEnd + (headersPart.find("\r\n\r\n") != std::string::npos ? 4 : 2));
         
@@ -138,7 +138,7 @@ void readParseCGI(int pipe_out[2], int pid, Response& response) {
         
         for (size_t i = 0; i < headerLines.size(); ++i) {
             std::string line = headerLines[i];
-            // Nettoyer les \r
+            // cleaning \r
             if (!line.empty() && line[line.size()-1] == '\r')
                 line.erase(line.size()-1);
             
@@ -154,61 +154,51 @@ void readParseCGI(int pipe_out[2], int pid, Response& response) {
                 std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
                 
                 if (nameLower == "status") {
-                    // Extraire le code de statut
+                    // extract status code
                     size_t spacePos = value.find(' ');
-                    if (spacePos != std::string::npos) {
+                    if (spacePos != std::string::npos) 
+                    {
                         int statusCode = std::atoi(value.substr(0, spacePos).c_str());
                         std::string statusText = value.substr(spacePos + 1);
                         response.setStatus(statusCode, statusText);
-                    } else {
+                    } 
+                    else 
+                    {
                         int statusCode = std::atoi(value.c_str());
                         response.setStatus(statusCode, "");
                     }
                     hasStatus = true;
-                } else {
+                } 
+                else 
+                {
                     response.setHeader(name, value);
-                    if (nameLower == "content-type") {
+
+                    if (nameLower == "content-type") 
                         hasContentType = true;
-                    }
                 }
             }
         }
         
-        // Valeurs par défaut si non définies
-        if (!hasStatus) {
+        // Default values if not defined
+        if (!hasStatus)
             response.setStatus(200, "OK");
-        }
-        if (!hasContentType) {
+        if (!hasContentType)
             response.setHeader("Content-Type", "text/html");
-        }
         
         response.setBody(body);
-    } else {
-        // Pas d'en-têtes séparés, traiter comme du contenu brut
+    } 
+    else 
+    {
+        // No separate headers, treat as raw content
         response.setStatus(200, "OK");
         response.setHeader("Content-Type", "text/html");
         response.setBody(cgiOutput);
     }
 }
 
-/* std::string chooseInterpreter(const std::string& scriptPath, const std::string& defaultInterpreter) {
-	std::string ext;
-	size_t dotPos = scriptPath.find_last_of('.');
-	if (dotPos != std::string::npos)
-		ext = scriptPath.substr(dotPos);
 
-	if (ext == ".pl")
-		return "/usr/bin/perl";
-	else if (ext == ".php")
-		return "/usr/bin/php-cgi";
-	else if (ext == ".py")
-		return "/usr/bin/python3";
-	else if (ext == ".sh")
-		return "/bin/bash";
-	return defaultInterpreter;
-} */
-
-std::string chooseInterpreter(const std::string& scriptPath, const std::string& defaultInterpreter) {
+std::string chooseInterpreter(const std::string& scriptPath, const std::string& defaultInterpreter) 
+{
     std::string ext;
     size_t dotPos = scriptPath.find_last_of('.');
     if (dotPos != std::string::npos)
@@ -302,13 +292,17 @@ Response CgiHandler::execute(const Request& request,
 		close(pipe_out[1]);
 		
 		// write body request into CGI (handle partial writes)
-		if (!request.getBody().empty()) {
+		if (!request.getBody().empty()) 
+        {
 			const std::string& body = request.getBody();
 			size_t written = 0;
-			while (written < body.size()) {
+
+			while (written < body.size()) 
+            {
 				size_t chunk = body.size() - written;
 				ssize_t w = write(pipe_in[1], body.c_str() + written, chunk);
-				if (w <= 0) {
+				if (w <= 0) 
+                {
 					close(pipe_in[1]);
 					close(pipe_out[0]);
 					kill(pid, SIGKILL);
