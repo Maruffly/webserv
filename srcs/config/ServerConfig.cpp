@@ -6,10 +6,7 @@
 #include <cstdlib>
 
 ServerConfig::ServerConfig()
-    : _host(DEFAULT_HOST)
-    , _port(DEFAULT_PORT)
-    , _root("")
-    , _index("index.html")
+    : _index("index.html")
     , _clientMax(0)
     , _autoindex(false)
 {
@@ -63,12 +60,10 @@ void ServerConfig::setIndex(const std::string& index){
 	_index = index;
 }
 
-void ServerConfig::setListen(const std::string& listenStr){
+void ServerConfig::setListen(const std::string& listenStr) {
     std::vector<std::string> tokens = ParserUtils::split(ParserUtils::trim(listenStr), ' ');
     if (tokens.empty())
-        throw ParseConfigException("listen directive requires at least one parameter", "listen");
-
-    std::string currentHost = _host.empty() ? "0.0.0.0" : _host;
+        throw ParseConfigException("listen directive requires a parameter (ip:port, ip or port)", "listen");
 
     for (size_t i = 0; i < tokens.size(); ++i) {
         std::string entry = ParserUtils::trim(tokens[i]);
@@ -77,49 +72,58 @@ void ServerConfig::setListen(const std::string& listenStr){
         if (entry == "default_server")
             continue;
 
-        std::string hostCandidate = currentHost;
+        std::string hostCandidate;
         int portCandidate = -1;
 
         size_t colon = entry.find(':');
         if (colon != std::string::npos) {
+            // format: host:port
             hostCandidate = entry.substr(0, colon);
             std::string portPart = entry.substr(colon + 1);
             if (portPart.empty())
-                throw ParseConfigException("listen directive missing port", "listen");
+                throw ParseConfigException("listen directive missing port after ':'", "listen");
+
             char *endptr = NULL;
             long portVal = std::strtol(portPart.c_str(), &endptr, 10);
             if (*endptr != '\0' || !ValidationUtils::isValidPort(static_cast<int>(portVal)))
-                throw ParseConfigException("Invalid port number", "listen");
+                throw ParseConfigException("Invalid port number in listen directive", "listen");
             portCandidate = static_cast<int>(portVal);
         } else {
+            // single token (could be port or host)
             char *endptr = NULL;
             long portVal = std::strtol(entry.c_str(), &endptr, 10);
             if (*endptr == '\0') {
+                // it's a port
                 if (!ValidationUtils::isValidPort(static_cast<int>(portVal)))
-                    throw ParseConfigException("Invalid port number", "listen");
+                    throw ParseConfigException("Invalid port number in listen directive", "listen");
                 portCandidate = static_cast<int>(portVal);
+                hostCandidate = "0.0.0.0";  // host par défaut uniquement si le port est valide
             } else {
+                // it's a host only (ex: "127.0.0.1") → alors il faut un port déjà connu
                 hostCandidate = entry;
+                if (_port <= 0)
+                    throw ParseConfigException("listen directive with host requires a port", "listen");
+                portCandidate = _port;
             }
         }
 
         if (hostCandidate.empty())
-            hostCandidate = "0.0.0.0";
+            throw ParseConfigException("listen directive requires a valid host", "listen");
         if (portCandidate == -1)
-            portCandidate = (_port > 0) ? _port : DEFAULT_PORT;
+            throw ParseConfigException("listen directive requires a valid port", "listen");
 
-        std::string normalized = hostCandidate + std::string(":") + toString(portCandidate);
+        std::string normalized = hostCandidate + ":" + toString(portCandidate);
         if (std::find(_listen.begin(), _listen.end(), normalized) == _listen.end())
             _listen.push_back(normalized);
 
+        // Première directive listen → définit host/port principaux
         if (_listen.size() == 1) {
             _host = hostCandidate;
             _port = portCandidate;
         }
-
-        currentHost = hostCandidate;
     }
 }
+
 
 void ServerConfig::setClientMax(const size_t clientMax){
 	_clientMax = clientMax;

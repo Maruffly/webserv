@@ -28,9 +28,11 @@ int main(int argc, char** argv)
     try 
     {
         std::string configPath;
+        bool usingDefault = false;
         if (argc < 2) {
             configPath = "./config/default.conf";
             LOG("Aucun fichier de configuration fourni, utilisation de la configuration par défaut: " + configPath);
+            usingDefault = true;
         } else {
             configPath = argv[1];
         }
@@ -46,18 +48,15 @@ int main(int argc, char** argv)
         }
         test.close();
         LOG("Chargement du fichier de configuration: " + configPath);
-
         ParseConfig parser;
         std::vector<ServerConfig> serverConfigs = parser.parse(configPath);
 
-        if (serverConfigs.empty()) 
+        if (serverConfigs.empty())
         {
             ERROR("Aucune configuration de serveur valide trouvée dans " + configPath);
             return 1;
         }
-
         LOG("Configurations detectees: " + toString(serverConfigs.size()));
-
         // Grouper les serveurs par couple host:port (supporte plusieurs listen par server)
         std::map<std::string, std::vector<ServerConfig> > groups;
         for (size_t i = 0; i < serverConfigs.size(); ++i) {

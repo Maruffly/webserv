@@ -1,20 +1,11 @@
-#!/usr/bin/python3
-import sys
+#!/usr/bin/env python3
 import os
+import sys
 
-# Debug output to stderr
-sys.stderr.write("CGI Script Starting\n")
+# UN SEUL en-tête Content-Type, suivi de ligne vide
+sys.stdout.write("Content-Type: text/html\r\n\r\n")
 
-# Print environment variables for debugging
-sys.stderr.write("Environment Variables:\n")
-for key, value in os.environ.items():
-    sys.stderr.write(f"{key}: {value}\n")
-
-# Print headers with proper line endings
-sys.stdout.write("Content-Type: text/html\r\n")
-sys.stdout.write("\r\n")
-
-# Print HTML content
+# Maintenant on peut écrire le contenu HTML
 sys.stdout.write("""<!DOCTYPE html>
 <html>
 <head>
@@ -29,22 +20,30 @@ sys.stdout.write("""<!DOCTYPE html>
 </head>
 <body>
     <div class='container'>
-        <h1>🐍 CGI Test Script</h1>
+        <h1>🚀 CGI Test Script</h1>
         <p class='success'>✅ CGI script executed successfully!</p>
         <div class='info'>
             <h3>Script Information:</h3>
             <ul>
                 <li><strong>Script:</strong> test.py</li>
                 <li><strong>Interpreter:</strong> Python 3</li>
-                <li><strong>Location:</strong> /cgi-bin/</li>
+                <li><strong>Working dir:</strong> {}</li>
+                <li><strong>Script path:</strong> {}</li>
             </ul>
         </div>
         <p>This demonstrates that your webserv can execute CGI scripts.</p>
         <a href='/'>← Back to Home</a>
     </div>
 </body>
-</html>""")
+</html>""".format(os.getcwd(), os.path.abspath(__file__)))
 
-# Force flush of both streams
+# Debug sur stderr (ne perturbe pas la sortie CGI)
+sys.stderr.write("=== CGI Debug Info ===\n")
+sys.stderr.write(f"Python: {sys.executable}\n")
+sys.stderr.write(f"Working dir: {os.getcwd()}\n")
+sys.stderr.write(f"REQUEST_METHOD: {os.environ.get('REQUEST_METHOD', 'N/A')}\n")
+sys.stderr.write(f"QUERY_STRING: {os.environ.get('QUERY_STRING', 'N/A')}\n")
+
+# Flush obligatoire
 sys.stdout.flush()
 sys.stderr.flush()

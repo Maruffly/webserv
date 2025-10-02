@@ -12,6 +12,30 @@ ParseConfig::ParseConfig() : _pos(0) {}
 
 ParseConfig::~ParseConfig(){}
 
+void ParseConfig::validateServerConfig(const ServerConfig& server) {
+	// check listen
+	if (server.getListen().empty())
+		throw ParseConfigException("Missing required directive 'listen' in server block", "server");
+	// check server_name
+	std::cout << "SERVE_NAME : " << server.getServerName() << std::endl;
+	if (server.getServerName().empty())
+		throw ParseConfigException("Missing required directive 'server_name' in server block", "server");
+	// check root (server / location)
+	bool hasRoot = !server.getRoot().empty();
+	if (!hasRoot) {
+		const std::vector<LocationConfig>& locations = server.getLocations();
+		for (size_t i = 0; i < locations.size(); ++i) {
+			if (!locations[i].getRoot().empty()) {
+				hasRoot = true;
+				break;
+			}
+		}
+	}
+	if (!hasRoot) {
+		throw ParseConfigException("Missing required directive 'root' in server block or locations", "server");
+	}
+}
+
 bool parseBodySize(const std::string& sizeStr, size_t& result, std::string& errorDetail) {
 	errorDetail = "";
 	const size_t MAX_BODY_SIZE = 4UL * 1024UL * 1024UL * 1024UL;
@@ -109,7 +133,6 @@ void parseCgiParam(Directive &directive, LocationConfig& location, std::vector<s
 std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
 	std::vector<std::string> blocks;
 	std::string searchPattern = blockName + " {";
-
 	size_t pos = 0;
 	while ((pos = _configContent.find(searchPattern, pos)) != std::string::npos) {
 		size_t braceStart = _configContent.find('{', pos);
@@ -383,6 +406,8 @@ void ParseConfig::parseLocationBlock(const std::string& locationBlock, ServerCon
 void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerConfig& server) {
 	std::vector<std::string> lines = ParserUtils::split(blockContent, '\n');
 	Directive directive;
+	bool hasListenDirective = false;
+	bool hasServerBlock = false;
 
 	for (size_t i = 0; i < lines.size(); ++i) {
 		std::string line = ParserUtils::trim(lines[i]);
@@ -390,8 +415,11 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 		// ignorer les commentaires
 		if (!line.empty() && line[0] == '#')
 			continue;
-
-		if (line.empty() || line == "{" || line == "}" || line == "server {")
+		if (ParserUtils::startsWith(line, "server {")) {
+			hasServerBlock = true;
+			continue;
+		}
+		if (line.empty() || line == "{" || line == "}")
 			continue;
 		if (ParserUtils::startsWith(line, "location")) {
 			int idx = (int)i;
@@ -421,7 +449,12 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 		}
 		else if (ParserUtils::startsWith(line,"listen")){
 			directive.value = ParserUtils::getInBetween(line, "listen", ";");
-			server.setListen(ParserUtils::trim(directive.value));
+			std::string listenValue = ParserUtils::trim(directive.value);
+			if (listenValue.empty()) {
+				throw ParseConfigException("listen directive cannot be empty", "listen");
+			}
+			server.setListen(listenValue);
+			hasListenDirective = true;
 		}
 		else if (ParserUtils::startsWith(line,"autoindex")){
 			directive.value = ParserUtils::getInBetween(line, "autoindex", ";");
@@ -455,6 +488,9 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 		else
 			std::cerr << "Unknown directive: " << line << std::endl;
 	}
+	if (!hasServerBlock)
+		throw ParseConfigException("Bloc 'server {' manquant ou mal formé", "server");
+	validateServerConfig(server);
 }
 
 std::vector<ServerConfig> ParseConfig::parse(const std::string& configPath){
@@ -476,6 +512,9 @@ std::vector<ServerConfig> ParseConfig::parse(const std::string& configPath){
 		}
 	std::vector<ServerConfig> servers;
 	std::vector<std::string> serverBlock = parseBlock("server");
+	if (serverBlock.empty()) {
+		throw ParseConfigException("No server block found in configuration file", "config");
+	}
 	for (size_t i = 0; i < serverBlock.size(); ++i){
 		ServerConfig server;
 		parseServerDirectives(serverBlock[i], server);

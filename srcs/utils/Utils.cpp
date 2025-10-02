@@ -237,3 +237,11 @@ bool ensureDirectoryExists(const std::string& path, bool create)
     }
     return dirExists(path);
 }
+
+std::string toLowerCase(const std::string &str) {
+    std::string result = str;
+    for (size_t i = 0; i < result.size(); ++i) {
+        result[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(result[i])));
+    }
+    return result;
+}

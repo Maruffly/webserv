@@ -41,6 +41,7 @@ class ParseConfig {
 			ServerConfig server;
 			ParseConfig();
 			~ParseConfig();
+			void validateServerConfig(const ServerConfig& server); 
 			std::vector<ServerConfig> parse(const std::string& configPath);
 			std::vector<std::string> parseBlock(const std::string& blockName);
 			void parseLocationDirectives(const std::string& blockContent, LocationConfig& location);

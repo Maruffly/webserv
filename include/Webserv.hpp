@@ -29,8 +29,8 @@
 // const
 #define SUCCESS 0
 #define FAILURE -1
-#define DEFAULT_PORT 8080
-#define DEFAULT_HOST "127.0.0.1"
+//#define DEFAULT_PORT 8080
+//#define DEFAULT_HOST "127.0.0.1"
 #define BACKLOG 10 // connections waiting in queue
 #define BUFFER_SIZE 1024
 #define MAX_EVENTS 64
