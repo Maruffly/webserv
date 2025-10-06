@@ -4,12 +4,12 @@
 #include "../config/ServerConfig.hpp"
 #include "../utils/Utils.hpp"
 #include "../utils/ParserUtils.hpp"
-#include "../cgi/CgiHandler.hpp"
 #include <signal.h>
 #include <sys/wait.h>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 
 namespace {
 
@@ -98,6 +98,35 @@ void attachSessionCookie(Response& response, ClientConnection& conn)
 }
 
 }
+
+void resetConnectionState(ClientConnection& conn)
+{
+    conn.headers.clear();
+    conn.body.clear();
+    conn.chunkBuffer.clear();
+    conn.method.clear();
+    conn.uri.clear();
+    conn.version.clear();
+    conn.state = READING_HEADERS;
+    conn.headersParsed = false;
+    conn.bodyType = BODY_NONE;
+    conn.contentLength = 0;
+    conn.bodyReceived = 0;
+    conn.chunkState = CHUNK_READ_SIZE;
+    conn.currentChunkSize = 0;
+    conn.hasResponse = false;
+    conn.keepAlive = false;
+    conn.outBuffer.clear();
+    conn.outOffset = 0;
+    conn.cgiRunning = false;
+    conn.cgiPid = -1;
+    conn.cgiInFd = -1;
+    conn.cgiOutFd = -1;
+    conn.cgiInOffset = 0;
+    conn.cgiOutBuffer.clear();
+    conn.isReading = false;
+}
+
 epollManager::epollManager(const std::vector<int>& listenFds, const std::vector< std::vector<ServerConfig> >& serverGroups)
     : _epollFd(-1)
     , _running(true)
@@ -328,6 +357,23 @@ host_selected:
             _serverForClientFd[conn.fd] = *chosen;
         }
     }
+    std::string connectionValue;
+    std::map<std::string, std::string>::iterator connIt = conn.headers.find("connection");
+    if (connIt != conn.headers.end()) connectionValue = connIt->second;
+    std::string connectionLower = connectionValue;
+    for (size_t i = 0; i < connectionLower.size(); ++i) connectionLower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(connectionLower[i])));
+    bool explicitClose = connectionLower.find("close") != std::string::npos;
+    bool explicitKeep = connectionLower.find("keep-alive") != std::string::npos;
+    std::string versionUpper = conn.version;
+    for (size_t i = 0; i < versionUpper.size(); ++i) versionUpper[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(versionUpper[i])));
+    if (!explicitClose) {
+        if (versionUpper == "HTTP/1.1") conn.keepAlive = true;
+        else if (versionUpper == "HTTP/1.0") conn.keepAlive = explicitKeep;
+        else conn.keepAlive = explicitKeep;
+    } else {
+        conn.keepAlive = false;
+    }
+
     conn.state = (conn.bodyType == BODY_NONE) ? READY : READING_BODY;
     return true;
 }
@@ -392,6 +438,52 @@ bool epollManager::processConnectionData(int clientFd) {
         else if (conn.bodyType == BODY_CHUNKED) { if (!processChunkedBody(clientFd)) return false; if (maxBody > 0 && conn.body.size() > maxBody) return true; }
     }
     return (conn.state == READY);
+}
+
+void epollManager::processReadyRequest(int clientFd)
+{
+    ClientConnection &conn = _clientConnections[clientFd];
+    try {
+        std::string raw;
+        raw += conn.method + " " + conn.uri + " " + conn.version + "\r\n";
+        for (std::map<std::string,std::string>::const_iterator it = conn.headers.begin(); it != conn.headers.end(); ++it) {
+            if (it->first == "transfer-encoding" || it->first == "content-length") continue;
+            raw += it->first + ": " + it->second + "\r\n";
+        }
+        if (!conn.body.empty()) raw += std::string("Content-Length: ") + toString(conn.body.size()) + "\r\n";
+        raw += "\r\n";
+        raw += conn.body;
+        Request request(raw);
+        if (request.isComplete()) {
+            LOG("Request " + request.getMethod() + " " + request.getUri() + " fd=" + toString(clientFd));
+            const ServerConfig& cfg = _serverForClientFd[clientFd];
+            const LocationConfig* location = findLocationConfig(conn.uri, cfg);
+            ensureSessionFor(conn, request);
+            bool wantsCgi = (location && location->isCgiRequest(conn.uri));
+            if (wantsCgi) {
+                if (!startCgiFor(clientFd, request, cfg, location)) { sendErrorResponse(clientFd, 500, "Internal Server Error"); }
+            } else {
+                Response response = createResponseForRequest(request, cfg);
+                if (conn.keepAlive) {
+                    response.setHeader("Connection", "keep-alive");
+                    response.setHeader("Keep-Alive", "timeout=5, max=100");
+                } else {
+                    response.setHeader("Connection", "close");
+                }
+                attachSessionCookie(response, conn);
+                std::string responseStr = response.getResponse();
+                std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
+                LOG("Response " + statusLine + " fd=" + toString(clientFd));
+                conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
+            }
+        } else {
+            conn.keepAlive = false;
+            sendErrorResponse(clientFd, 400, "Bad Request");
+        }
+    } catch (...) {
+        conn.keepAlive = false;
+        sendErrorResponse(clientFd, 400, "Bad Request");
+    }
 }
 
 const LocationConfig* epollManager::findLocationConfig(const std::string& uri, const ServerConfig& config) const
@@ -513,21 +605,8 @@ bool epollManager::parseMultipartAndSave(const std::string& body, const std::str
 
 Response epollManager::handlePost(const Request& request, const LocationConfig* location, const ServerConfig& config) {
     Response response; const std::string uri = request.getUri();
-    if (location && location->isCgiRequest(uri)) {
-        std::string extension = getFileExtension(uri);
-        /* std::cout << "\n\n" << extension << "\n\n" << std::endl; */
-        const std::map<std::string, std::string>& cgiConfig = location->getCgiPass();
-        std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension);
-        if (it == cgiConfig.end()) it = cgiConfig.find(".*");
-        if (it != cgiConfig.end()) {
-            std::string scriptPath = resolveFilePath(uri, config);
-            if (!scriptPath.empty() && fileExists(scriptPath)) {
-                std::string interpreter = it->second;
-                CgiHandler cgi;
-                return cgi.execute(request, scriptPath, interpreter, location, config);
-            }
-        }
-    }
+    // CGI requests are handled asynchronously in processReadyRequest via startCgiFor
+    // This function now only covers non-CGI POST handlers (uploads, file writes, etc.)
     // Determine upload base path: upload_store if set, else resolve from URI
     std::string basePath = (location && !location->getUploadStore().empty()) ? location->getUploadStore() : resolveFilePath(uri, config);
     // Ensure upload dir exists if upload_store is set
@@ -597,7 +676,7 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
         goto finalize;
     }
     if (method == "DELETE") { return handleDelete(request, location, config); }
-    if (method == "POST") { return handlePost(request, location, config); }
+    if (method == "POST" && (!location || !location->isCgiRequest(uri))) { return handlePost(request, location, config); }
     if (method == "POST") {
         // Enforce effective body max at routing time too
         size_t effectiveMax = getEffectiveClientMax(location, config);
@@ -624,19 +703,10 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
             response.setStatus(404, "Not Found"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("404 Not Found","Index file not found"));
         }
     } else if (location && location->isCgiRequest(uri)) {
-        std::string extension = getFileExtension(uri);
-        const std::map<std::string, std::string>& cgiConfig = location->getCgiPass();
-        std::map<std::string, std::string>::const_iterator it = cgiConfig.find(extension);
-        if (it == cgiConfig.end()) it = cgiConfig.find(".*");
-        if (it != cgiConfig.end()) {
-            std::string scriptPath = resolveFilePath(uri, config);
-            if (!scriptPath.empty() && fileExists(scriptPath)) {
-                std::string interpreter = it->second;
-                CgiHandler cgi;
-                return cgi.execute(request, scriptPath, interpreter, location, config);
-            }
-        }
-        response.setStatus(400, "Bad Request"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse("400 Bad Request","No CGI interpreter configured"));
+        // CGI responses are produced asynchronously via startCgiFor; this path should not be reached
+        response.setStatus(500, "Internal Server Error");
+        response.setHeader("Content-Type", "text/html");
+        response.setBody(createHtmlResponse("500 Internal Server Error", "CGI handler invoked synchronously"));
     } else {
         std::string filePath = resolveFilePath(uri, config);
         if (!filePath.empty() && fileExists(filePath)) {
@@ -662,7 +732,7 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
     }
 finalize:
     // Common headers
-    response.setHeader("Connection", "close"); response.setHeader("Server", "webserv/1.0"); response.setHeader("Date", getCurrentDate());
+    response.setHeader("Server", "webserv/1.0"); response.setHeader("Date", getCurrentDate());
     // HEAD: same headers as GET, no body
     if (method == "HEAD") {
         size_t len = response.getBodyLength();
@@ -684,33 +754,9 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
     ssize_t bytesRead = recv(clientFd, buffer, BUFFER_SIZE, 0);
     if (bytesRead > 0) {
         conn.buffer.append(buffer, bytesRead);
-        if (conn.buffer.size() + conn.body.size() > MAX_REQUEST_SIZE) { sendErrorResponse(clientFd, 413, "Request Entity Too Large"); return; }
+        if (conn.buffer.size() + conn.body.size() > MAX_REQUEST_SIZE) { conn.keepAlive = false; sendErrorResponse(clientFd, 413, "Request Entity Too Large"); return; }
         if (!processConnectionData(clientFd)) { return; }
-        try {
-            std::string raw; raw += conn.method + " " + conn.uri + " " + conn.version + "\r\n";
-            for (std::map<std::string,std::string>::const_iterator it=conn.headers.begin(); it!=conn.headers.end(); ++it) { if (it->first == "transfer-encoding" || it->first == "content-length") continue; raw += it->first + ": " + it->second + "\r\n"; }
-            if (!conn.body.empty()) raw += std::string("Content-Length: ") + toString(conn.body.size()) + "\r\n";
-            raw += "\r\n"; raw += conn.body; Request request(raw);
-            if (request.isComplete()) {
-                LOG("Request " + request.getMethod() + " " + request.getUri() + " fd=" + toString(clientFd));
-                const ServerConfig& cfg = _serverForClientFd[clientFd];
-                ensureSessionFor(conn, request);
-                // Detect CGI route early and start async CGI if needed
-                const LocationConfig* location = findLocationConfig(conn.uri, cfg);
-                bool wantsCgi = (location && location->isCgiRequest(conn.uri));
-                if (wantsCgi) {
-                    if (!startCgiFor(clientFd, request, cfg, location)) { sendErrorResponse(clientFd, 500, "Internal Server Error"); }
-                } else {
-                    Response response = createResponseForRequest(request, cfg);
-                    attachSessionCookie(response, conn);
-                    std::string responseStr = response.getResponse();
-                    std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
-                    LOG("Response " + statusLine + " fd=" + toString(clientFd));
-                    conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
-                }
-            }
-            else sendErrorResponse(clientFd, 400, "Bad Request");
-        } catch (...) { sendErrorResponse(clientFd, 400, "Bad Request"); }
+        processReadyRequest(clientFd);
         return;
     }
     conn.isReading = false;
@@ -731,8 +777,13 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
     if (remaining == 0) 
     {
         armWriteEvent(clientFd, false);
-        closeClient(clientFd);
-        purgeClient(clientFd);
+        if (conn.keepAlive) {
+            resetConnectionState(conn);
+            conn.lastActivity = time(NULL);
+        } else {
+            closeClient(clientFd);
+            purgeClient(clientFd);
+        }
         return;
     }
 
@@ -746,8 +797,13 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
         if (conn.outOffset >= conn.outBuffer.size()) {
             LOG("Response sent to client " + toString(clientFd));
             armWriteEvent(clientFd, false); // cut the writing
-            closeClient(clientFd);
-            purgeClient(clientFd);
+            if (conn.keepAlive) {
+                resetConnectionState(conn);
+                conn.lastActivity = time(NULL);
+            } else {
+                closeClient(clientFd);
+                purgeClient(clientFd);
+            }
         }
         return;
     }
@@ -761,6 +817,7 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
 void epollManager::sendErrorResponse(int clientFd, int code, const std::string& message) 
 {
     ClientConnection &conn = _clientConnections[clientFd];
+    conn.keepAlive = false;
     Response response;
     // Try custom error_page for this server
     std::map<int, ServerConfig>::iterator sit = _serverForClientFd.find(clientFd);
@@ -1062,6 +1119,12 @@ void epollManager::finalizeCgiFor(int clientFd)
         size_t len = resp.getBodyLength();
         resp.setHeader("Content-Length", toString(len));
         resp.setBody("");
+    }
+    if (conn.keepAlive) {
+        resp.setHeader("Connection", "keep-alive");
+        resp.setHeader("Keep-Alive", "timeout=5, max=100");
+    } else {
+        resp.setHeader("Connection", "close");
     }
     attachSessionCookie(resp, conn);
     std::string out = resp.getResponse();

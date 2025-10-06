@@ -38,6 +38,7 @@ public:
     std::string outBuffer;    // full HTTP response to send
     size_t outOffset;         // bytes already sent
     bool hasResponse;         // whether a response is ready to write
+    bool keepAlive;           // whether to keep connection open after response
 
     // Session management
     bool sessionAssigned;
@@ -64,7 +65,7 @@ public:
     ClientConnection()
         : fd(-1), listenFd(-1), lastActivity(0), isReading(true), state(READING_HEADERS), headersParsed(false),
           bodyType(BODY_NONE), contentLength(0), bodyReceived(0), chunkState(CHUNK_READ_SIZE),
-            currentChunkSize(0), outOffset(0), hasResponse(false),
+            currentChunkSize(0), outOffset(0), hasResponse(false), keepAlive(false),
             sessionAssigned(false), sessionShouldSetCookie(false),
             server(NULL),
             remotePort(0), cgiRunning(false), cgiPid(-1), cgiInFd(-1), cgiOutFd(-1), cgiInOffset(0), cgiStart(0) {}

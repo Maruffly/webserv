@@ -52,6 +52,7 @@ class epollManager
         bool parseMultipartAndSave(const std::string& body, const std::string& boundary,
                                    const std::string& basePath, const std::string& uri,
                                    size_t& savedCount, bool& anyCreated, std::string& lastSavedPath);
+        void processReadyRequest(int clientFd);
 
         void armWriteEvent(int clientFd, bool enable);
         bool startCgiFor(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location);

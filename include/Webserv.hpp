@@ -31,11 +31,11 @@
 #define FAILURE -1
 //#define DEFAULT_PORT 8080
 //#define DEFAULT_HOST "127.0.0.1"
-#define BACKLOG 10 // connections waiting in queue
+#define BACKLOG 256 // connections waiting in queue
 #define BUFFER_SIZE 1024
 #define MAX_EVENTS 64
 #define MAX_REQUEST_SIZE 524288000
-#define MAX_CLIENTS 100 
+#define MAX_CLIENTS 512 
 #define CONNECTION_TIMEOUT 30
 #define READ_TIMEOUT 12
 #define KEEP_ALIVE_TIMEOUT 10 
