@@ -180,7 +180,7 @@ void epollManager::requestStop()
     _running = false;
 }
 
-void epollManager::cleanupIdleConnections() {
+void epollManager::cleanupInactiveConnections() {
     time_t now = time(NULL);
     if (now - _lastCleanup < CLEANUP_INTERVAL) return;
     _lastCleanup = now;
@@ -946,7 +946,7 @@ void epollManager::run()
             ERROR_SYS("epoll_wait");
             continue;
         }
-        cleanupIdleConnections();
+        cleanupInactiveConnections();
         for (int i = 0; i < num; ++i)
         {
             int fd = events[i].data.fd;

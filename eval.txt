@@ -1,6 +1,4 @@
-CHECKING EVAL FORM
-
-Mandatory Part
+===== MANDATORY PART =====
 
     Ask explanations about the basics of an HTTP server.
 -> handleNewConnection listen and accept every client, by adding non-blocking socket to epoll
@@ -35,8 +33,10 @@ Mandatory Part
 -> epollManager::handleClientRead , epollManager::handleClientWrite, epollManager::handleCgiOutEvent, epollManager::handleCgiInEvent
 
     Writing or reading ANY file descriptor without going through the select() (or equivalent) is strictly FORBIDDEN.
-   
-    The project must compile without any re-link issue. If not, use the 'Invalid compilation' flag.
-    
-    If any point is unclear or is not correct, the evaluation stops.
+-> handleClientRead, handleClientWrite, 
+
+
+
+
+===== CONFIG =====
 

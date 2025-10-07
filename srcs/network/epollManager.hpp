@@ -65,7 +65,7 @@ class epollManager
         void finalizeCgiFor(int clientFd);
 
     public:
-        void cleanupIdleConnections();
+        void cleanupInactiveConnections();
         epollManager(const std::vector<int>& listenFds, const std::vector< std::vector<ServerConfig> >& serverGroups);
         ~epollManager();
 
