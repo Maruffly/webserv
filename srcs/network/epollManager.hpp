@@ -7,6 +7,7 @@
 #include "../config/ServerConfig.hpp"
 #include "ClientConnection.hpp"
 #include <set>
+#include <deque>
 
 class epollManager
 {
@@ -26,6 +27,11 @@ class epollManager
         std::map<int,int> _cgiOutToClient;
         std::map<int,int> _cgiInToClient;
 
+        // call back
+      /*   std::deque<PendingCgiJob> _pendingCgiQueue; // job : clientFd, Request copy, etc.
+        int _currentCgiCount;
+        int _maxConcurrentCgi; 
+ */
         void handleNewConnection(int listenFd);
         void handleClientRead(int clientFd, uint32_t events);
         void handleClientWrite(int clientFd, uint32_t events);

@@ -235,25 +235,32 @@ void epollManager::handleNewConnection(int listenFd)
     struct sockaddr_in clientAddress;
     socklen_t clientAddrLen = sizeof(clientAddress);
     int clientSocket;
-    while ((clientSocket = accept(listenFd, (struct sockaddr*)&clientAddress, &clientAddrLen)) != -1) {
-        if (_clientBuffers.size() >= MAX_CLIENTS) { close(clientSocket); continue; }
-        int flags = fcntl(clientSocket, F_GETFL, 0);
+    ClientConnection newConn;
+
+    while ((clientSocket = accept(listenFd, (struct sockaddr*)&clientAddress, &clientAddrLen)) != -1)
+    {
+        if (_clientBuffers.size() >= MAX_CLIENTS) {
+            close(clientSocket);
+            continue;
+        }
+        int flags = fcntl(clientSocket, F_GETFL, 0); // to check
         fcntl(clientSocket, F_SETFL, flags | O_NONBLOCK);
 
         struct epoll_event event;
         event.events = EPOLLIN; // EPOLLOUT armed when needed
         event.data.fd = clientSocket;
-        if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, clientSocket, &event) == -1) { ERROR_SYS("epoll_ctl add client"); close(clientSocket); continue; }
-
-        ClientConnection newConn;
+        if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, clientSocket, &event) == -1) {
+            ERROR_SYS("epoll_ctl add client"); close(clientSocket);
+            continue;
+        }
         newConn.fd = clientSocket;
         newConn.listenFd = listenFd;
         newConn.lastActivity = time(NULL);
         newConn.isReading = false;
-        char ipbuf[INET_ADDRSTRLEN];
+        char ipbuf[INET_ADDRSTRLEN]; //to check
         inet_ntop(AF_INET, &clientAddress.sin_addr, ipbuf, INET_ADDRSTRLEN);
         newConn.remoteAddr = ipbuf;
-        newConn.remotePort = ntohs(clientAddress.sin_port);
+        newConn.remotePort = ntohs(clientAddress.sin_port); //to check
         _clientConnections[clientSocket] = newConn;
         _clientBuffers[clientSocket].clear();
         // Default to first server of the group for this listen fd
@@ -266,15 +273,18 @@ void epollManager::handleNewConnection(int listenFd)
 bool epollManager::parseHeadersFor(int clientFd) {
     ClientConnection &conn = _clientConnections[clientFd];
     size_t pos = conn.buffer.find("\r\n\r\n");
-    if (pos == std::string::npos) return false;
+    if (pos == std::string::npos)
+        return false;
     std::string headersPart = conn.buffer.substr(0, pos);
     std::string after = conn.buffer.substr(pos + 4);
     size_t eol = headersPart.find("\r\n");
-    if (eol == std::string::npos) return false;
+    if (eol == std::string::npos)
+        return false;
     std::string start = headersPart.substr(0, eol);
     size_t sp1 = start.find(' ');
     size_t sp2 = (sp1 == std::string::npos) ? std::string::npos : start.find(' ', sp1 + 1);
-    if (sp1 == std::string::npos || sp2 == std::string::npos) return false;
+    if (sp1 == std::string::npos || sp2 == std::string::npos)
+        return false;
     conn.method = start.substr(0, sp1);
     conn.uri = start.substr(sp1 + 1, sp2 - sp1 - 1);
     conn.version = start.substr(sp2 + 1);
@@ -282,7 +292,8 @@ bool epollManager::parseHeadersFor(int clientFd) {
     size_t lineStart = eol + 2;
     while (lineStart < headersPart.size()) {
         size_t lineEnd = headersPart.find("\r\n", lineStart);
-        if (lineEnd == std::string::npos) break;
+        if (lineEnd == std::string::npos)
+            break;
         std::string line = headersPart.substr(lineStart, lineEnd - lineStart);
         size_t colon = line.find(':');
         if (colon != std::string::npos) {
@@ -290,29 +301,43 @@ bool epollManager::parseHeadersFor(int clientFd) {
             std::string value = line.substr(colon + 1);
             while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) value.erase(0,1);
             while (!name.empty() && (name[name.size()-1] == ' ' || name[name.size()-1] == '\t')) name.erase(name.size()-1);
-            for (size_t i=0;i<name.size();++i) name[i] = std::tolower(name[i]);
+            for (size_t i=0;i<name.size();++i)
+                name[i] = std::tolower(name[i]);
             conn.headers[name] = value;
         }
         lineStart = lineEnd + 2;
     }
 
     std::string te;
-    if (conn.headers.find("transfer-encoding") != conn.headers.end()) te = conn.headers["transfer-encoding"];
+    if (conn.headers.find("transfer-encoding") != conn.headers.end())
+        te = conn.headers["transfer-encoding"];
     std::string cl;
-    if (conn.headers.find("content-length") != conn.headers.end()) cl = conn.headers["content-length"];
-
+    if (conn.headers.find("content-length") != conn.headers.end())
+        cl = conn.headers["content-length"];
     if (!te.empty()) {
-        std::string tel = te; for (size_t i=0;i<tel.size();++i) tel[i]=std::tolower(tel[i]);
-        if (tel.find("chunked") != std::string::npos) { conn.bodyType = BODY_CHUNKED; conn.chunkState = CHUNK_READ_SIZE; }
+        std::string tel = te;
+        for (size_t i=0;i<tel.size();++i)
+            tel[i]=std::tolower(tel[i]);
+        if (tel.find("chunked") != std::string::npos) {
+            conn.bodyType = BODY_CHUNKED;
+            conn.chunkState = CHUNK_READ_SIZE;
+        }
     }
     if (conn.bodyType != BODY_CHUNKED) {
-        if (!cl.empty()) { conn.contentLength = static_cast<size_t>(std::strtoul(cl.c_str(), NULL, 10)); conn.bodyType = (conn.contentLength > 0) ? BODY_FIXED : BODY_NONE; }
-        else { conn.bodyType = BODY_NONE; }
+        if (!cl.empty()) {
+            conn.contentLength = static_cast<size_t>(std::strtoul(cl.c_str(), NULL, 10));
+            conn.bodyType = (conn.contentLength > 0) ? BODY_FIXED : BODY_NONE;
+        }
+        else
+            conn.bodyType = BODY_NONE;
     }
-
     conn.buffer.clear();
-    if (conn.bodyType == BODY_FIXED) { conn.body.append(after); conn.bodyReceived = conn.body.size(); }
-    else if (conn.bodyType == BODY_CHUNKED) { conn.chunkBuffer.append(after); }
+    if (conn.bodyType == BODY_FIXED) {
+        conn.body.append(after);
+        conn.bodyReceived = conn.body.size();
+    }
+    else if (conn.bodyType == BODY_CHUNKED)
+        conn.chunkBuffer.append(after);
 
     conn.headersParsed = true;
     // Select vhost according to Host header, defaulting to first
@@ -321,7 +346,8 @@ bool epollManager::parseHeadersFor(int clientFd) {
         const std::vector<ServerConfig>& group = git->second;
         if (!group.empty()) {
             std::string hostHeader;
-            if (conn.headers.find("host") != conn.headers.end()) hostHeader = conn.headers["host"];
+            if (conn.headers.find("host") != conn.headers.end())
+                hostHeader = conn.headers["host"];
             size_t colon = hostHeader.find(':');
             std::string hostname = (colon == std::string::npos) ? hostHeader : hostHeader.substr(0, colon);
             hostname = ParserUtils::trim(hostname);
@@ -380,47 +406,67 @@ host_selected:
 
 bool epollManager::processFixedBody(int clientFd) {
     ClientConnection &conn = _clientConnections[clientFd];
-    if (conn.bodyReceived >= conn.contentLength) { conn.state = READY; return true; }
+    if (conn.bodyReceived >= conn.contentLength) {
+        conn.state = READY;
+        return true;
+    }
     if (!conn.buffer.empty()) {
         conn.body.append(conn.buffer);
         conn.bodyReceived = conn.body.size();
         conn.buffer.clear();
     }
-    if (conn.bodyReceived >= conn.contentLength) { conn.state = READY; return true; }
+    if (conn.bodyReceived >= conn.contentLength) {
+        conn.state = READY;
+        return true;
+    }
     return false;
 }
 
 bool epollManager::processChunkedBody(int clientFd) {
     ClientConnection &c = _clientConnections[clientFd];
-    if (!c.buffer.empty()) { c.chunkBuffer.append(c.buffer); c.buffer.clear(); }
+    if (!c.buffer.empty()) {
+        c.chunkBuffer.append(c.buffer);
+        c.buffer.clear();
+    }
     while (true) {
         if (c.chunkState == CHUNK_READ_SIZE) {
             size_t pos = c.chunkBuffer.find("\r\n");
-            if (pos == std::string::npos) return false;
+            if (pos == std::string::npos)
+                return false;
             std::string sizeLine = c.chunkBuffer.substr(0, pos);
             size_t semi = sizeLine.find(';');
-            if (semi != std::string::npos) sizeLine = sizeLine.substr(0, semi);
+            if (semi != std::string::npos)
+                sizeLine = sizeLine.substr(0, semi);
             size_t sz = std::strtoul(sizeLine.c_str(), NULL, 16);
             c.currentChunkSize = sz;
             c.chunkBuffer.erase(0, pos + 2);
-            if (sz == 0) { c.chunkState = CHUNK_COMPLETE; }
-            else { c.chunkState = CHUNK_READ_DATA; }
+            if (sz == 0)
+                c.chunkState = CHUNK_COMPLETE;
+            else
+                c.chunkState = CHUNK_READ_DATA;
         }
         if (c.chunkState == CHUNK_READ_DATA) {
-            if (c.chunkBuffer.size() < c.currentChunkSize) return false;
+            if (c.chunkBuffer.size() < c.currentChunkSize)
+                return false;
             c.body.append(c.chunkBuffer.substr(0, c.currentChunkSize));
             c.chunkBuffer.erase(0, c.currentChunkSize);
             c.chunkState = CHUNK_READ_CRLF;
         }
         if (c.chunkState == CHUNK_READ_CRLF) {
-            if (c.chunkBuffer.size() < 2) return false;
-            if (c.chunkBuffer.substr(0,2) != "\r\n") return false;
+            if (c.chunkBuffer.size() < 2)
+                return false;
+            if (c.chunkBuffer.substr(0,2) != "\r\n")
+                return false;
             c.chunkBuffer.erase(0,2);
             c.chunkState = CHUNK_READ_SIZE;
         }
         if (c.chunkState == CHUNK_COMPLETE) {
             size_t pos = c.chunkBuffer.find("\r\n\r\n");
-            if (pos != std::string::npos) { c.chunkBuffer.erase(0, pos + 4); c.state = READY; return true; }
+            if (pos != std::string::npos) {
+                c.chunkBuffer.erase(0, pos + 4);
+                c.state = READY;
+                return true;
+             }
             if (c.chunkBuffer.find("\r\n") == 0) { c.chunkBuffer.erase(0, 2); c.state = READY; return true; }
             return false;
         }
@@ -432,10 +478,20 @@ bool epollManager::processConnectionData(int clientFd) {
     const ServerConfig& cfg = _serverForClientFd[clientFd];
     const LocationConfig* location = findLocationConfig(conn.uri.empty() ? "/" : conn.uri, cfg);
     size_t maxBody = getEffectiveClientMax(location, cfg);
-    if (!conn.headersParsed) parseHeadersFor(clientFd);
+    if (!conn.headersParsed)
+        parseHeadersFor(clientFd);
     if (conn.state == READING_BODY) {
-        if (conn.bodyType == BODY_FIXED) { if (maxBody > 0 && conn.body.size() > maxBody) return true; processFixedBody(clientFd); }
-        else if (conn.bodyType == BODY_CHUNKED) { if (!processChunkedBody(clientFd)) return false; if (maxBody > 0 && conn.body.size() > maxBody) return true; }
+        if (conn.bodyType == BODY_FIXED) {
+            if (maxBody > 0 && conn.body.size() > maxBody)
+            return true;
+            processFixedBody(clientFd);
+        }
+        else if (conn.bodyType == BODY_CHUNKED) {
+            if (!processChunkedBody(clientFd))
+            return false;
+            if (maxBody > 0 && conn.body.size() > maxBody)
+                return true;
+        }
     }
     return (conn.state == READY);
 }
@@ -516,20 +572,36 @@ std::string epollManager::resolveFilePath(const std::string& uri, const ServerCo
     const bool locationHasRoot = (hasLocation && !location->getRoot().empty());
     std::string root = locationHasRoot ? location->getRoot() : config.getRoot();
     std::string pathOnly = uri;
-    size_t qpos = pathOnly.find('?'); if (qpos != std::string::npos) pathOnly = pathOnly.substr(0, qpos);
-    size_t fpos = pathOnly.find('#'); if (fpos != std::string::npos) pathOnly = pathOnly.substr(0, fpos);
+    size_t qpos = pathOnly.find('?');
+    if (qpos != std::string::npos)
+        pathOnly = pathOnly.substr(0, qpos);
+    size_t fpos = pathOnly.find('#');
+    if (fpos != std::string::npos)
+        pathOnly = pathOnly.substr(0, fpos);
     std::string rel;
     if (locationHasRoot) {
-        std::string mount = location->getPath(); rel = pathOnly; if (!mount.empty() && rel.find(mount) == 0) rel = rel.substr(mount.length());
-    } else { rel = pathOnly; }
-    if (!rel.empty() && rel[0] == '/') rel.erase(0,1);
+        std::string mount = location->getPath();
+        rel = pathOnly;
+        if (!mount.empty() && rel.find(mount) == 0)
+        rel = rel.substr(mount.length());
+    }
+    else
+        rel = pathOnly;
+    if (!rel.empty() && rel[0] == '/')
+        rel.erase(0,1);
     std::vector<std::string> parts = ParserUtils::split(rel, '/');
     std::vector<std::string> stack;
     for (size_t i = 0; i < parts.size(); ++i) {
         const std::string& seg = parts[i];
-        if (seg.empty() || seg == ".") continue;
-        if (seg == "..") { if (stack.empty()) return ""; stack.pop_back(); }
-        else stack.push_back(seg);
+        if (seg.empty() || seg == ".")
+            continue;
+        if (seg == "..") {
+            if (stack.empty())
+                return ""; 
+            stack.pop_back(); 
+        }
+        else
+            stack.push_back(seg);
     }
     std::string full = root;
     if (!full.empty() && full[full.size()-1] != '/') full += "/";
@@ -862,13 +934,13 @@ void epollManager::run()
 {
     struct epoll_event events[MAX_EVENTS];
     INFO("Demarrage de la boucle epoll unifiee...");
-
     while (_running)
     {
         int num = epoll_wait(_epollFd, events, MAX_EVENTS, -1);
         if (num < 0) {
             if (errno == EINTR) {
-                if (!_running) break;
+                if (!_running)
+                    break;
                 continue;
             }
             ERROR_SYS("epoll_wait");
@@ -878,15 +950,17 @@ void epollManager::run()
         for (int i = 0; i < num; ++i)
         {
             int fd = events[i].data.fd;
-            if (_listenSockets.find(fd) != _listenSockets.end()) {
+            if (_listenSockets.find(fd) != _listenSockets.end())
                 handleNewConnection(fd);
-            } else if (_cgiOutToClient.find(fd) != _cgiOutToClient.end()) {
+            else if (_cgiOutToClient.find(fd) != _cgiOutToClient.end())
                 handleCgiOutEvent(fd, events[i].events);
-            } else if (_cgiInToClient.find(fd) != _cgiInToClient.end()) {
+            else if (_cgiInToClient.find(fd) != _cgiInToClient.end())
                 handleCgiInEvent(fd, events[i].events);
-            } else {
-                if (events[i].events & EPOLLIN) handleClientRead(fd, events[i].events);
-                if (events[i].events & EPOLLOUT) handleClientWrite(fd, events[i].events);
+            else {
+                if (events[i].events & EPOLLIN)
+                    handleClientRead(fd, events[i].events);
+                if (events[i].events & EPOLLOUT)
+                    handleClientWrite(fd, events[i].events);
             }
         }
     }
@@ -1026,14 +1100,26 @@ void epollManager::handleCgiOutEvent(int pipeFd, uint32_t events)
     // n == -1: EAGAIN or transient; do nothing
 }
 
-void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
+/* void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
 {
     (void)events;
     int clientFd = _cgiInToClient[pipeFd];
     ClientConnection &conn = _clientConnections[clientFd];
-    if (conn.body.empty()) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; return; }
+    if (conn.body.empty())
+    {
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
+        close(pipeFd); _cgiInToClient.erase(pipeFd);
+        conn.cgiInFd = -1;
+        return;
+    }
     size_t remaining = conn.body.size() - conn.cgiInOffset;
-    if (remaining == 0) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL); close(pipeFd); _cgiInToClient.erase(pipeFd); conn.cgiInFd = -1; return; }
+    if (remaining == 0)
+    {
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
+        close(pipeFd); _cgiInToClient.erase(pipeFd);
+        conn.cgiInFd = -1;
+        return;
+    }
     size_t toWrite = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining;
     ssize_t w = write(pipeFd, conn.body.data() + conn.cgiInOffset, toWrite);
 
@@ -1049,7 +1135,14 @@ void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
         }
         return;
     }
-
+    if (w == -1) { 
+        int err = errno;
+        // Pipe temporarily full, wait for next EPOLLOUT // Do nothing — we stay registered for EPOLLOUT and retry later.
+        if (err == EAGAIN || err == EWOULDBLOCK)
+            return;
+        if (err == EINTR) //  caller can retry later (we don't kill CGI)
+            return; // Other errors are fatal
+    }
     LOG("write() vers le CGI échoué, fermeture de la connexion client " + toString(clientFd));
     if (conn.cgiPid > 0) 
     {
@@ -1071,18 +1164,115 @@ void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
     conn.cgiInFd = -1;
     conn.cgiRunning = false;
     sendErrorResponse(clientFd, 500, "Internal Server Error");
+} */
+
+
+// Extrait : Remplacer/mettre à jour la logique d'écriture vers le pipe stdin du CGI
+// (fonction handleCgiInEvent ou équivalent dans epollManager.cpp)
+
+void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
+{
+    (void)events;
+    int clientFd = _cgiInToClient[pipeFd];
+    ClientConnection &conn = _clientConnections[clientFd];
+
+    if (conn.body.empty() || conn.cgiInFd == -1)
+    {
+        // Rien à envoyer
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
+        close(pipeFd);
+        _cgiInToClient.erase(pipeFd);
+        conn.cgiInFd = -1;
+        return;
+    }
+
+    size_t remaining = conn.body.size() - conn.cgiInOffset;
+    if (remaining == 0)
+    {
+        // Terminé
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
+        close(pipeFd);
+        _cgiInToClient.erase(pipeFd);
+        conn.cgiInFd = -1;
+        return;
+    }
+
+    size_t toWrite = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining;
+    ssize_t w = write(pipeFd, conn.body.data() + conn.cgiInOffset, toWrite);
+
+    if (w > 0)
+    {
+        conn.cgiInOffset += static_cast<size_t>(w);
+        conn.lastActivity = time(NULL);
+        if (conn.cgiInOffset >= conn.body.size())
+        {
+            // tout envoyé, on retire le fd
+            epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
+            close(pipeFd);
+            _cgiInToClient.erase(pipeFd);
+            conn.cgiInFd = -1;
+        }
+        return;
+    }
+    if (w == -1){
+        // Pipe plein temporairement — attendre le prochain EPOLLOUT.
+        return ;
+    }
+    /* if (w == -1)
+    {
+        int err = errno;
+        if (err == EAGAIN || err == EWOULDBLOCK)
+        {
+            if (errno == EAGAIN)
+                LOG("EAGAIN on write() to CGI stdin");
+
+            
+            return;
+        }
+        if (err == EINTR)
+        {
+            // Interruption système — on peut réessayer plus tard.
+            return;
+        }
+        // Erreur fatale — nettoyer et répondre erreur
+    } */
+
+    // Si on arrive ici -> erreur non-récupérable
+    LOG("Fatal write to CGI stdin, errno=" + toString(errno));
+    if (conn.cgiPid > 0)
+    {
+        kill(conn.cgiPid, SIGKILL);
+        conn.cgiPid = -1;
+    }
+    if (conn.cgiOutFd != -1)
+    {
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, conn.cgiOutFd, NULL);
+        close(conn.cgiOutFd);
+        _cgiOutToClient.erase(conn.cgiOutFd);
+        conn.cgiOutFd = -1;
+    }
+    if (pipeFd != -1)
+    {
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
+        close(pipeFd);
+        _cgiInToClient.erase(pipeFd);
+    }
+    conn.cgiInFd = -1;
+    conn.cgiRunning = false;
+    sendErrorResponse(clientFd, 500, "Internal Server Error");
 }
 
 static void parseCgiOutputToResponse(const std::string& cgiOutput, Response& response)
 {
     size_t headerEnd = cgiOutput.find("\r\n\r\n");
 
-    if (headerEnd != std::string::npos) 
+    if (headerEnd != std::string::npos)
     {
         std::string headersPart = cgiOutput.substr(0, headerEnd);
         std::string body = cgiOutput.substr(headerEnd + 4);
         std::vector<std::string> headerLines = ParserUtils::split(headersPart, '\n');
-        int statusCode = 200; std::string statusText = "OK";
+        int statusCode = 200;
+        std::string statusText = "OK";
         for (size_t i = 0; i < headerLines.size(); ++i) {
             if (!headerLines[i].empty() && headerLines[i][headerLines[i].size()-1] == '\r') headerLines[i].erase(headerLines[i].size()-1);
             size_t colonPos = headerLines[i].find(':');
