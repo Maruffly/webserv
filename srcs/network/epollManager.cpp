@@ -215,16 +215,13 @@ void epollManager::cleanupInactiveConnections() {
             if (c.cgiInFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiInFd, NULL); close(c.cgiInFd); _cgiInToClient.erase(c.cgiInFd); c.cgiInFd = -1; }
             if (c.cgiOutFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiOutFd, NULL); close(c.cgiOutFd); _cgiOutToClient.erase(c.cgiOutFd); c.cgiOutFd = -1; }
             c.cgiRunning = false;
+            c.keepAlive = false;
             sendErrorResponse(c.fd, 504, "Gateway Timeout");
         } else if ((!c.headersParsed || c.state == READING_BODY) && idle > READ_TIMEOUT) {
-            // No keep-alive: close connections that don't progress fast enough
-            int fd = c.fd;
-            std::map<int, ClientConnection>::iterator next = it;
-            ++next;
-            closeClient(fd);
-            purgeClient(fd);
-            it = next;
-            erased = true;
+            if (!c.hasResponse) {
+                c.keepAlive = false;
+                sendErrorResponse(c.fd, 408, "Request Timeout");
+            }
         }
         if (!erased) ++it;
     }
@@ -517,7 +514,7 @@ void epollManager::processReadyRequest(int clientFd)
             ensureSessionFor(conn, request);
             bool wantsCgi = (location && location->isCgiRequest(conn.uri));
             if (wantsCgi) {
-                if (!startCgiFor(clientFd, request, cfg, location)) { sendErrorResponse(clientFd, 500, "Internal Server Error"); }
+                if (!startCgiFor(clientFd, request, cfg, location)) { sendErrorResponse(clientFd, 502, "Bad Gateway"); }
             } else {
                 Response response = createResponseForRequest(request, cfg);
                 if (conn.keepAlive) {
@@ -819,11 +816,16 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
     (void)events;
     if (_clientConnections.find(clientFd) == _clientConnections.end()) {
         ClientConnection conn; conn.fd = clientFd; conn.lastActivity = time(NULL); _clientConnections[clientFd] = conn;
+        if (_clientConnections.size() > MAX_CLIENTS) {
+            sendErrorResponse(clientFd, 503, "Service Unavailable");
+            return;
+        }
     }
     ClientConnection &conn = _clientConnections[clientFd];
     conn.isReading = true; conn.lastActivity = time(NULL);
     char buffer[BUFFER_SIZE];
     ssize_t bytesRead = recv(clientFd, buffer, BUFFER_SIZE, 0);
+    conn.keepAlive = false;
     if (bytesRead > 0) {
         conn.buffer.append(buffer, bytesRead);
         if (conn.buffer.size() + conn.body.size() > MAX_REQUEST_SIZE) { conn.keepAlive = false; sendErrorResponse(clientFd, 413, "Request Entity Too Large"); return; }
@@ -992,12 +994,12 @@ bool epollManager::startCgiFor(int clientFd, const Request& request, const Serve
         sendErrorResponse(clientFd, 404, "Not Found");
         return false;
     }
-    int pin[2], pout[2]; if (pipe(pin) == -1 || pipe(pout) == -1) { return false; }
+    int pin[2], pout[2]; if (pipe(pin) == -1 || pipe(pout) == -1) { sendErrorResponse(clientFd, 502, "Bad Gateway"); return false; }
     // nonblocking
     fcntl(pin[1], F_SETFL, fcntl(pin[1], F_GETFL, 0) | O_NONBLOCK);
     fcntl(pout[0], F_SETFL, fcntl(pout[0], F_GETFL, 0) | O_NONBLOCK);
 
-    pid_t pid = fork(); if (pid == -1) { close(pin[0]); close(pin[1]); close(pout[0]); close(pout[1]); return false; }
+    pid_t pid = fork(); if (pid == -1) { close(pin[0]); close(pin[1]); close(pout[0]); close(pout[1]); sendErrorResponse(clientFd, 502, "Bad Gateway"); return false; }
     if (pid == 0) {
         // child
         // chdir to script directory
@@ -1302,6 +1304,11 @@ void epollManager::finalizeCgiFor(int clientFd)
     ClientConnection &conn = _clientConnections[clientFd];
     // Reap child if finished
     if (conn.cgiPid > 0) { int st; waitpid(conn.cgiPid, &st, WNOHANG); }
+    if (conn.cgiOutBuffer.empty()) {
+        conn.keepAlive = false;
+        sendErrorResponse(clientFd, 502, "Bad Gateway");
+        return;
+    }
     // Build response from CGI output
     Response resp; parseCgiOutputToResponse(conn.cgiOutBuffer, resp);
     // HEAD handling: keep headers, strip body but keep original length
