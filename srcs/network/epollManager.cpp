@@ -938,14 +938,20 @@ void epollManager::run()
     INFO("Demarrage de la boucle epoll unifiee...");
     while (_running)
     {
-        int num = epoll_wait(_epollFd, events, MAX_EVENTS, -1);
+        int num = epoll_wait(_epollFd, events, MAX_EVENTS, 1000);
         if (num < 0) {
             if (errno == EINTR) {
+                cleanupInactiveConnections();
                 if (!_running)
                     break;
                 continue;
             }
             ERROR_SYS("epoll_wait");
+            cleanupInactiveConnections();
+            continue;
+        }
+        if (num == 0) {
+            cleanupInactiveConnections();
             continue;
         }
         cleanupInactiveConnections();

@@ -42,3 +42,75 @@
 
     HTTP response status codes
 -> 200/201/204, 301/302, 400/403/404/405/408/411/413, 500/504/503/505
+
+    Setup multiple servers with different ports
+-> Each .conf file has 2 servers bloc with different ports (8080/8081/8082)
+
+    Setup multiple servers with different hostnames
+-> default.conf : server_name = localhost / localhost-alt
+-> linux.conf : server_name = localhost / api.local
+-> curl --resolve localhost-alt:8081:127.0.0.1 http://localhost-alt:8081/
+-> curl --resolve api.local:8082:127.0.0.1 http://api.local:8082/health
+
+    Setup default error page (try to change the error 404)
+-> .conf : error_page 404 /404.html;
+-> curl -i http://127.0.0.1:8080/absent
+
+    Limit the client body
+-> .conf : client_max_body_size directive
+-> epollManager::handlePost , (request.getBody().size() > maxBody { response.setStatus(413)}) l.692
+-> curl -i -F "file=@small.txt" http://127.0.0.1:8080/
+
+    Setup routes in a server to different directories
+-> every location block leads to a different directory
+
+    Setup a default file to search for if you ask for a directory
+-> each 'server' and 'location' bloc specify index index.html
+-> curl -i http://127.0.0.1:8080/
+
+    Setup a list of methods accepted for a certain route
+-> curl -i http://127.0.0.1:8080/ : 200 OK
+-> curl -i -X DELETE http://127.0.0.1:8080/ : 405 Method Not Allowed
+
+
+
+===== Basic checks =====
+
+    GET, POST and DELETE requests should work.
+-> GET via curl : curl -i http://127.0.0.1:8080/test-get.txt : 200 OK
+-> GET via telnet : telnet 127.0.0.1 8080
+-> POST : curl -i -X POST \
+     -d "name=chatgpt" \
+     http://127.0.0.1:8080/cgi-bin/test.py : 200 OK
+-> DELETE : curl -i -X DELETE http://127.0.0.1:8080/uploads/to-delete.txt : 204 no-content
+
+    UNKNOWN requests should not result in a crash.
+-> curl -i -X FOO http://127.0.0.1:8080/ : 405 Method Not Allowed
+
+
+
+
+===== Check CGI =====
+
+    The server is working fine using a CGI.
+-> curl -i http://127.0.0.1:8080/cgi-bin/test.py : 200 OK
+-> curl -i http://127.0.0.1:8080/cgi-bin/test.php : 200 OK
+-> curl -i http://127.0.0.1:8080/cgi-bin/test.pl : 200 OK
+-> curl -i http://127.0.0.1:8080/cgi-bin/test.sh : 200 OK
+-> server can launch multiple interpreters via cgi_pass
+
+    CGI should be run in the correct directory for relative path file access
+-> epollManager::startCgiFor
+-> std::string dir = dirnameOf(scriptPath); chdir(dir.c_str()); : chdir to script directory
+-> fork then chdir to move in script folder , then execve.
+
+    Test the CGI with the "GET" and "POST" methods
+-> curl -i http://127.0.0.1:8080/cgi-bin/test.py : 200 OK
+-> curl -i -X POST \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     --data "name=webserv&lang=cpp" \
+     http://127.0.0.1:8080/cgi-bin/test.py : 200 OK
+
+    test with files containing errors to see if the error handling works properly
+-> chmod +x www/html/cgi-bin/timeout.py  
+-> curl -i http://127.0.0.1:8080/cgi-bin/timeout.py
