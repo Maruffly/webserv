@@ -59,6 +59,9 @@ class epollManager
                                    const std::string& basePath, const std::string& uri,
                                    size_t& savedCount, bool& anyCreated, std::string& lastSavedPath);
         void processReadyRequest(int clientFd);
+        std::string resolveErrorPagePath(const std::string& candidate, const ServerConfig& config) const;
+        bool loadErrorPage(int code, const ServerConfig* config, std::string& body, std::string& contentType) const;
+        void buildErrorResponse(Response& response, int code, const std::string& message, const ServerConfig* config) const;
 
         void armWriteEvent(int clientFd, bool enable);
         bool startCgiFor(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location);

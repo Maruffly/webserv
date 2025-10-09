@@ -18,6 +18,7 @@ class ServerConfig {
 			size_t _clientMax;
 			bool _autoindex;
 			std::map<int, std::string> _errorPages;
+			std::string _errorPageDirectory;
 			std::vector<LocationConfig> _locations;
 
 	public:
@@ -34,10 +35,12 @@ class ServerConfig {
 			void setClientMax(const size_t clientMax);
 			void setAutoindex(const std::string& autoindex);
 			void addErrorPage(int errorCode, const std::string& path);
+			void setErrorPageDirectory(const std::string& directory);
 			void addLocation(const LocationConfig& location);
 			const std::vector<LocationConfig>& getLocations() const;
 			const std::map<int, std::string>& getErrorPages() const;
 			std::string getErrorPagePath(int code) const;
+			const std::string& getErrorPageDirectory() const;
 			std::string getServerName() const;
 			const std::vector<std::string>& getServerNames() const;
 			const std::string& getHost() const;

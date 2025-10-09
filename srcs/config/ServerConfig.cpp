@@ -9,6 +9,7 @@ ServerConfig::ServerConfig()
     : _index("index.html")
     , _clientMax(0)
     , _autoindex(false)
+    , _errorPageDirectory("")
 {
 }
 ServerConfig::~ServerConfig(){}
@@ -26,6 +27,7 @@ ServerConfig ServerConfig::operator=(const ServerConfig& src)
         this->_clientMax = src._clientMax;
         this->_autoindex = src._autoindex;
         this->_errorPages = src._errorPages;
+        this->_errorPageDirectory = src._errorPageDirectory;
         this->_locations = src._locations;
     }
     return *this;
@@ -186,6 +188,10 @@ void ServerConfig::addErrorPage(int errorCode, const std::string& path) {
 	_errorPages[errorCode] = path;
 }
 
+void ServerConfig::setErrorPageDirectory(const std::string& directory) {
+	_errorPageDirectory = directory;
+}
+
 const std::vector<LocationConfig>& ServerConfig::getLocations() const {
     return _locations;
 }
@@ -198,6 +204,10 @@ std::string ServerConfig::getErrorPagePath(int code) const {
     std::map<int, std::string>::const_iterator it = _errorPages.find(code);
     if (it != _errorPages.end()) return it->second;
     return std::string();
+}
+
+const std::string& ServerConfig::getErrorPageDirectory() const {
+	return _errorPageDirectory;
 }
 
 void ServerConfig::printConfig() const {
@@ -217,6 +227,8 @@ void ServerConfig::printConfig() const {
 	std::cout << "Index: " << _index << std::endl;
 	std::cout << "Autoindex: " << (_autoindex ? "on" : "off") << std::endl;
 	std::cout << "Client Max Body Size: " << _clientMax << std::endl;
+	if (!_errorPageDirectory.empty())
+		std::cout << "Error Page Directory: " << _errorPageDirectory << std::endl;
 	std::cout << "Listen Directives: ";
 	for (size_t i = 0; i < _listen.size(); ++i) {
 		std::cout << _listen[i];

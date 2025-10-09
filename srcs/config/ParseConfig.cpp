@@ -472,6 +472,17 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
   			}
    			server.setClientMax(bodySize);
 		}
+		else if (ParserUtils::startsWith(line, "error_page_dir")) {
+			std::string value = ParserUtils::getInBetween(line, "error_page_dir", ";");
+			value = ParserUtils::trim(value);
+			if (value.empty())
+				throw ParseConfigException("error_page_dir requires a directory path", "error_page_dir");
+			std::string resolved = expandLocalUserPath(value);
+			resolved = resolvePathRelativeToConfig(resolved);
+			if (!ValidationUtils::isValidPath(resolved))
+				throw ParseConfigException("Invalid error_page_dir path", "error_page_dir");
+			server.setErrorPageDirectory(resolved);
+		}
 		else if (ParserUtils::startsWith(line, "error_page")) {
 			std::string value = ParserUtils::getInBetween(line, "error_page", ";");
 	   		std::vector<std::string> token = ParserUtils::split(value, ' ');
