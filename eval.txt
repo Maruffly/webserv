@@ -113,4 +113,32 @@
 
     test with files containing errors to see if the error handling works properly
 -> chmod +x www/html/cgi-bin/timeout.py  
--> curl -i http://127.0.0.1:8080/cgi-bin/timeout.py
+-> curl -i http://127.0.0.1:8080/cgi-bin/timeout.py : 504 Timeout
+
+
+
+===== Check with a browser =====
+
+
+
+
+
+
+CENTALISER LA RESOLUTION D'ERREURS
+Introduire un composant (ex. srcs/http/ErrorPageManager.{hpp,cpp}) chargé de mapper un code vers un fichier, de le lire, de fournir le fallback générique.
+Prévoir une constante configurant la racine (DEFAULT_ERROR_PAGES_DIR) et un cache mémoire simple pour éviter des relectures disque.
+Brancher la config serveur
+
+BRANCHER LA CONFIG SERVEUR
+Étendre srcs/config/ServerConfig.{hpp,cpp} pour exposer getErrorPagePath en priorisant les directives error_page (déjà stockées) avant le fallback par défaut via le manager.
+Ajouter le manager au cycle de vie (injection via epollManager ou singleton contrôlé).
+Unifier les réponses d’erreur
+
+UNIFIER LES REPONSES D'ERREURS
+Remplacer toutes les constructions directes de HTML dans srcs/network/epollManager.cpp (méthodes sendErrorResponse, createResponseForRequest, handleDelete, handlePost, etc.) par des appels au manager qui renvoie la page et le Content-Type adapté.
+Traiter aussi le flux CGI et les erreurs globales (timeouts, parsing) pour qu’elles passent par la même voie.
+Couverture & documentation
+
+COUVERTURE ET DOCUMENTATION
+Mettre à jour les configs de démo (config/default.conf, éventuels fichiers dans www/html) pour refléter la présence des pages par défaut.
+Ajouter des tests manuels/automatisés (ex. curl + vérification du contenu) et documenter dans README.md la hiérarchie de résolution (custom → défaut → HTML générique).

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>409 Conflict</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2.5rem;
+      font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #1e293b 0%, #0f172a 45%, #020617 100%);
+      color: #f8fafc;
+    }
+    .card {
+      width: min(520px, 92vw);
+      padding: 2.75rem 2.5rem;
+      border-radius: 20px;
+      background: rgba(15, 23, 42, 0.82);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      box-shadow: 0 32px 60px rgba(2, 6, 23, 0.55);
+      backdrop-filter: blur(18px);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      animation: rise 0.65s ease-out;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      inset: -60% -40% auto;
+      height: 240px;
+      background: conic-gradient(from 90deg, rgba(56, 189, 248, 0.45), rgba(99, 102, 241, 0.45), rgba(168, 85, 247, 0.45), rgba(56, 189, 248, 0.45));
+      filter: blur(90px);
+      opacity: 0.6;
+      animation: glow 6s linear infinite;
+    }
+    .status {
+      font-size: clamp(3rem, 8vw, 4.4rem);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin: 0 0 1rem;
+      color: #38bdf8;
+      position: relative;
+      z-index: 1;
+    }
+    h1 {
+      font-size: clamp(1.8rem, 4vw, 2.4rem);
+      margin: 0 0 1.25rem;
+      color: #e0f2fe;
+      position: relative;
+      z-index: 1;
+    }
+    .lead {
+      font-size: 1.05rem;
+      margin: 0 0 0.9rem;
+      color: #cbd5f5;
+      position: relative;
+      z-index: 1;
+    }
+    .hint {
+      font-size: 0.95rem;
+      margin: 0 0 2rem;
+      color: #94a3b8;
+      position: relative;
+      z-index: 1;
+    }
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      min-width: 200px;
+      padding: 0.85rem 1.5rem;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #38bdf8, #818cf8);
+      color: #0f172a;
+      font-weight: 600;
+      text-decoration: none;
+      position: relative;
+      z-index: 1;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 14px 30px rgba(56, 189, 248, 0.45);
+    }
+    .cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 20px 40px rgba(56, 189, 248, 0.55);
+    }
+    @keyframes rise {
+      from { transform: translateY(18px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes glow {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @media (max-width: 540px) {
+      body { padding: 1.5rem; }
+      .card { padding: 2.25rem 1.75rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="status">409</div>
+    <h1>Conflict</h1>
+    <p class="lead">The current state of the resource conflicts with your request.</p>
+    <p class="hint">Refresh the page or resolve outstanding changes before continuing.</p>
+    <a class="cta" href="/">Back to safety</a>
+  </div>
+</body>
+</html>
