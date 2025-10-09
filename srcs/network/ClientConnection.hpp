@@ -10,6 +10,7 @@ enum ChunkState { CHUNK_READ_SIZE, CHUNK_READ_DATA, CHUNK_READ_CRLF, CHUNK_COMPL
 
 class ClientConnection {
 public:
+    //int activeCgiCount;
     int fd;
     int listenFd;             // parent listening socket fd
     std::string buffer;       // raw incoming buffer
@@ -28,6 +29,7 @@ public:
     size_t contentLength;
     size_t bodyReceived;
     std::string body;
+
 
     // Chunked decoding state
     std::string chunkBuffer;  // staging buffer for chunked stream

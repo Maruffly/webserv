@@ -25,6 +25,9 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
+
 
 // const
 #define SUCCESS 0
@@ -36,6 +39,7 @@
 #define MAX_EVENTS 64
 #define MAX_REQUEST_SIZE 524288000
 #define MAX_CLIENTS 512 
+#define MAX_CGI_PROCESS 150
 #define CONNECTION_TIMEOUT 30
 #define READ_TIMEOUT 12
 #define KEEP_ALIVE_TIMEOUT 10 

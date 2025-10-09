@@ -245,3 +245,17 @@ std::string toLowerCase(const std::string &str) {
     }
     return result;
 }
+
+std::string dirnameOf(const std::string& path) {
+    size_t p = path.find_last_of('/');
+    if (p == std::string::npos) return std::string(".");
+    if (p == 0) return std::string("/");
+    return path.substr(0, p);
+}
+
+void safeClose(int pipefd[2]){
+    if (pipefd[0] != -1)
+        close(pipefd[0]);
+    if (pipefd[1] != -1)
+        close(pipefd[1]);
+}

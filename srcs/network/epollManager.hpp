@@ -27,11 +27,9 @@ class epollManager
         std::map<int,int> _cgiOutToClient;
         std::map<int,int> _cgiInToClient;
 
-        // call back
-      /*   std::deque<PendingCgiJob> _pendingCgiQueue; // job : clientFd, Request copy, etc.
-        int _currentCgiCount;
-        int _maxConcurrentCgi; 
- */
+        // CGI count
+        size_t _activeCgiCount;
+
         void handleNewConnection(int listenFd);
         void handleClientRead(int clientFd, uint32_t events);
         void handleClientWrite(int clientFd, uint32_t events);
@@ -65,6 +63,7 @@ class epollManager
         void finalizeCgiFor(int clientFd);
 
     public:
+        void reapZombies();
         void cleanupInactiveConnections();
         epollManager(const std::vector<int>& listenFds, const std::vector< std::vector<ServerConfig> >& serverGroups);
         ~epollManager();
