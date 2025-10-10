@@ -119,26 +119,45 @@
 
 ===== Check with a browser =====
 
+    Look at the request header and response header
+-> DevTools (F12), Network tab, click on the request
+
+    Try to list a directory
+-> http://127.0.0.1:8080/listingDir (autoindex on)
+
+    Try a redirected URL.
+-> curl -i http://127.0.0.1:8080/go-home : 301
+
+
+
+===== Port issues =====
 
 
 
 
 
-CENTALISER LA RESOLUTION D'ERREURS
-Introduire un composant (ex. srcs/http/ErrorPageManager.{hpp,cpp}) chargé de mapper un code vers un fichier, de le lire, de fournir le fallback générique.
-Prévoir une constante configurant la racine (DEFAULT_ERROR_PAGES_DIR) et un cache mémoire simple pour éviter des relectures disque.
-Brancher la config serveur
+In the configuration file setup multiple ports and use different websites. Use the browser to ensure that the configuration works as expected and shows the right website.
 
-BRANCHER LA CONFIG SERVEUR
-Étendre srcs/config/ServerConfig.{hpp,cpp} pour exposer getErrorPagePath en priorisant les directives error_page (déjà stockées) avant le fallback par défaut via le manager.
-Ajouter le manager au cycle de vie (injection via epollManager ou singleton contrôlé).
-Unifier les réponses d’erreur
 
-UNIFIER LES REPONSES D'ERREURS
-Remplacer toutes les constructions directes de HTML dans srcs/network/epollManager.cpp (méthodes sendErrorResponse, createResponseForRequest, handleDelete, handlePost, etc.) par des appels au manager qui renvoie la page et le Content-Type adapté.
-Traiter aussi le flux CGI et les erreurs globales (timeouts, parsing) pour qu’elles passent par la même voie.
-Couverture & documentation
+Tu as déjà tout ce qu’il faut dans les deux configs :
 
-COUVERTURE ET DOCUMENTATION
-Mettre à jour les configs de démo (config/default.conf, éventuels fichiers dans www/html) pour refléter la présence des pages par défaut.
-Ajouter des tests manuels/automatisés (ex. curl + vérification du contenu) et documenter dans README.md la hiérarchie de résolution (custom → défaut → HTML générique).
+config/default.conf : deux blocs server, sur 8080 et 8081 (localhost-alt).
+linux.conf : premier bloc écoutant 8080 et 8888, second bloc sur 8082 (api.local).
+Pour la démo :
+
+Lancer le serveur avec la config voulue, par ex.
+
+./webserv config/default.conf
+Tester les ports/hosts dans le navigateur :
+
+http://127.0.0.1:8080/ → affiche ton site principal (index dans www/html).
+http://127.0.0.1:8081/ → chargera la version localhost-alt (tu peux personnaliser ce bloc pour qu’il serve un contenu différent).
+Si tu veux tester api.local (port 8082 dans linux.conf), lance ./webserv linux.conf puis, dans le navigateur, ouvre http://api.local:8082/health après avoir ajouté 127.0.0.1 api.local à /etc/hosts.
+Vérifier dans DevTools (Network) que les en-têtes montrent bien Server: webserv/1.0, la bonne page, etc.
+
+Tu peux aussi faire curl --resolve api.local:8082:127.0.0.1 http://api.local:8082/health. Chaque port/host doit renvoyer le contenu prévu dans le bloc server correspondant : c’est exactement la preuve attendue par la consigne « multiple ports et sites différents ».
+
+
+
+
+
