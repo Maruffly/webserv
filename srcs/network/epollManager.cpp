@@ -150,6 +150,7 @@ void epollManager::cleanupInactiveConnections() {
         }
         if (!erased) ++it;
     }
+    pruneExpiredSessions(now);
 }
 
 void epollManager::handleNewConnection(int listenFd)
@@ -400,20 +401,20 @@ bool epollManager::processConnectionData(int clientFd) {
     const ServerConfig& cfg = _serverForClientFd[clientFd];
     const LocationConfig* location = findLocationConfig(conn.uri.empty() ? "/" : conn.uri, cfg);
     size_t maxBody = getEffectiveClientMax(location, cfg);
+
+    // Enforce max body size early, as data is being received.
+    if (maxBody > 0 && (conn.body.size() + conn.buffer.size() + conn.chunkBuffer.size()) > maxBody) {
+        sendErrorResponse(clientFd, 413, "Request Entity Too Large");
+        return false; // Stop processing
+    }
+
     if (!conn.headersParsed)
         parseHeadersFor(clientFd);
     if (conn.state == READING_BODY) {
-        if (conn.bodyType == BODY_FIXED) {
-            if (maxBody > 0 && conn.body.size() > maxBody)
-            return true;
+        if (conn.bodyType == BODY_FIXED)
             processFixedBody(clientFd);
-        }
-        else if (conn.bodyType == BODY_CHUNKED) {
-            if (!processChunkedBody(clientFd))
-            return false;
-            if (maxBody > 0 && conn.body.size() > maxBody)
-                return true;
-        }
+        else if (conn.bodyType == BODY_CHUNKED)
+            processChunkedBody(clientFd);
     }
     /* if (conn.cgiRunning)
         return false; */
@@ -631,12 +632,8 @@ bool epollManager::isMethodAllowed(const std::string& method, const std::string&
     const LocationConfig* location = findLocationConfig(uri, config);
     if (location) {
         const std::vector<std::string>& allowedMethods = location->getAllowedMethods();
-        if (!allowedMethods.empty()) {
-            if (std::find(allowedMethods.begin(), allowedMethods.end(), method) != allowedMethods.end()) return true;
-            // Treat HEAD as allowed when GET is allowed
-            if (method == "HEAD" && std::find(allowedMethods.begin(), allowedMethods.end(), std::string("GET")) != allowedMethods.end()) return true;
-            return false;
-        }
+        if (!allowedMethods.empty())
+            return std::find(allowedMethods.begin(), allowedMethods.end(), method) != allowedMethods.end();
     }
     return true;
 }
@@ -783,23 +780,25 @@ Response epollManager::createResponseForRequest(const Request& request, const Se
         buildErrorResponse(response, 500, "Internal Server Error", &config);
     } else {
         std::string filePath = resolveFilePath(uri, config);
-        if (!filePath.empty() && fileExists(filePath)) {
-            if (isDirectory(filePath)) {
-                if (location && location->getAutoindex()) { response.setStatus(200, "OK"); response.setHeader("Content-Type","text/html"); response.setBody(generateDirectoryListing(filePath, uri)); }
-                else {
-                    // Prefer location index if defined, else server index
-                    std::string indexConf = (location && !location->getIndex().empty()) ? location->getIndex() : config.getIndex();
-                    std::vector<std::string> indexList = ParserUtils::split(indexConf, ' '); bool indexFound = false;
-                    for (size_t i = 0; i < indexList.size() && !indexFound; ++i) { std::string indexFile = ParserUtils::trim(indexList[i]); if (!indexFile.empty()) { std::string indexFilePath = filePath + "/" + indexFile; if (fileExists(indexFilePath)) { response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(indexFile)); response.setBody(readFileContent(indexFilePath)); indexFound = true; } } }
-                    if (!indexFound) {
-                        buildErrorResponse(response, 403, "Forbidden", &config);
-                        goto finalize;
-                    }
-                }
-            } else { response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(uri)); response.setBody(readFileContent(filePath)); }
-        } else {
+        if (filePath.empty() || !fileExists(filePath)) {
             buildErrorResponse(response, 404, "Not Found", &config);
-            goto finalize;
+            return response;
+        }
+
+        if (isDirectory(filePath)) {
+            if (location && location->getAutoindex()) {
+                response.setStatus(200, "OK"); response.setHeader("Content-Type","text/html"); response.setBody(generateDirectoryListing(filePath, uri));
+            } else {
+                // Prefer location index if defined, else server index
+                std::string indexConf = (location && !location->getIndex().empty()) ? location->getIndex() : config.getIndex();
+                std::vector<std::string> indexList = ParserUtils::split(indexConf, ' '); bool indexFound = false;
+                for (size_t i = 0; i < indexList.size() && !indexFound; ++i) { std::string indexFile = ParserUtils::trim(indexList[i]); if (!indexFile.empty()) { std::string indexFilePath = filePath + "/" + indexFile; if (fileExists(indexFilePath)) { response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(indexFile)); response.setBody(readFileContent(indexFilePath)); indexFound = true; } } }
+                if (!indexFound) {
+                    buildErrorResponse(response, 404, "Not Found", &config);
+                }
+            }
+        } else { // It's a file
+            response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(uri)); response.setBody(readFileContent(filePath));
         }
     }
 finalize:

@@ -15,3 +15,4 @@ std::string generateSessionId(int clientFd);
 void ensureSessionFor(ClientConnection& conn, Request& request);
 void attachSessionCookie(Response& response, ClientConnection& conn);
 std::map<std::string, SessionData>& sessionStore();
+void pruneExpiredSessions(time_t now);

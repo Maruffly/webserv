@@ -45,6 +45,7 @@
 #define KEEP_ALIVE_TIMEOUT 10 
 #define CLEANUP_INTERVAL 5
 #define CGI_TIMEOUT 10
+#define SESSION_MAX_IDLE 300
 
 template <typename T>
 std::string toString(const T &value) 

@@ -10,6 +10,20 @@ std::map<std::string, SessionData>& sessionStore()
     return store;
 }
 
+void pruneExpiredSessions(time_t now)
+{
+    std::map<std::string, SessionData>& sessions = sessionStore();
+    for (std::map<std::string, SessionData>::iterator it = sessions.begin(); it != sessions.end(); ) {
+        double idle = difftime(now, it->second.lastSeen);
+        if (idle > SESSION_MAX_IDLE) {
+            std::map<std::string, SessionData>::iterator eraseIt = it++;
+            sessions.erase(eraseIt);
+        } else {
+            ++it;
+        }
+    }
+}
+
 std::map<std::string, std::string> parseCookies(const std::string& header)
 {
     std::map<std::string, std::string> cookies;
