@@ -27,6 +27,7 @@ class epollManager
         std::map<int,int> _cgiOutToClient;
         std::map<int,int> _cgiInToClient;
 
+        std::map<pid_t, int> _pidToClientFd;
         // CGI count
         size_t _activeCgiCount;
 
@@ -73,4 +74,6 @@ class epollManager
 
         void requestStop();
         void run();
+        void gracefulShutdown();
+
 };

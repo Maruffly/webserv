@@ -74,11 +74,14 @@ epollManager::epollManager(const std::vector<int>& listenFds, const std::vector<
 epollManager::~epollManager()
 {
     _running = false;
+    std::vector<int> fds;
+    for (std::map<int, ClientConnection>::iterator it = _clientConnections.begin();
+        it != _clientConnections.end(); ++it)
+        fds.push_back(it->first);
+    for (size_t i = 0; i < fds.size(); ++i)
+        closeClient(fds[i]);
     if (_epollFd != -1)
         close(_epollFd);
-    for (std::map<int, ClientConnection>::iterator it = _clientConnections.begin(); it != _clientConnections.end(); ++it) {
-        closeClient(it->first);
-    }
     _clientConnections.clear();
     _clientBuffers.clear();
     _cgiOutToClient.clear();
@@ -125,8 +128,16 @@ void epollManager::cleanupInactiveConnections() {
         double idle = difftime(now, c.lastActivity);
         bool erased = false;
         if (c.cgiRunning && c.cgiStart && difftime(now, c.cgiStart) > CGI_TIMEOUT) {
-            if (c.cgiPid > 0) kill(c.cgiPid, SIGKILL);
-            if (c.cgiInFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiInFd, NULL); close(c.cgiInFd); _cgiInToClient.erase(c.cgiInFd); c.cgiInFd = -1; }
+            if (c.cgiPid > 0){
+                kill(c.cgiPid, SIGKILL);
+		        --_activeCgiCount;
+            }
+            if (c.cgiInFd != -1) {
+                epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiInFd, NULL);
+                close(c.cgiInFd);
+                _cgiInToClient.erase(c.cgiInFd);
+                c.cgiInFd = -1;
+            }
             if (c.cgiOutFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiOutFd, NULL); close(c.cgiOutFd); _cgiOutToClient.erase(c.cgiOutFd); c.cgiOutFd = -1; }
             c.cgiRunning = false;
             c.keepAlive = false;
@@ -430,7 +441,9 @@ void epollManager::processReadyRequest(int clientFd)
             ensureSessionFor(conn, request);
             bool wantsCgi = (location && location->isCgiRequest(conn.uri));
             if (wantsCgi) {
-                if (!startCgiFor(clientFd, request, cfg, location)) { sendErrorResponse(clientFd, 502, "Bad Gateway"); }
+                if (!startCgiFor(clientFd, request, cfg, location)){
+                    sendErrorResponse(clientFd, 502, "Bad Gateway");
+                }
             } else {
                 Response response = createResponseForRequest(request, cfg);
                 if (conn.keepAlive) {
@@ -829,7 +842,9 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
     conn.keepAlive = false;
     if (bytesRead > 0) {
         conn.buffer.append(buffer, bytesRead);
-        if (conn.buffer.size() + conn.body.size() > MAX_REQUEST_SIZE) { conn.keepAlive = false; sendErrorResponse(clientFd, 413, "Request Entity Too Large"); return; }
+        if (conn.buffer.size() + conn.body.size() > MAX_REQUEST_SIZE) {
+            conn.keepAlive = false;
+            sendErrorResponse(clientFd, 413, "Request Entity Too Large"); return; }
         if (!processConnectionData(clientFd)) { return; }
         processReadyRequest(clientFd);
         return;
@@ -916,10 +931,11 @@ void epollManager::reapZombies()
 
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
     {
+        if (_activeCgiCount > 0)
+            _activeCgiCount--;
+
     // Debug log facultatif, utile en phase de test
     LOG("Reaped CGI child PID=" + toString(pid));
-    if (_activeCgiCount > 0)
-            _activeCgiCount--;
     // Si tu veux, tu peux parcourir _clientConnections
     // pour marquer la connexion correspondante comme terminée :
     for (std::map<int, ClientConnection>::iterator it = _clientConnections.begin();
@@ -981,7 +997,6 @@ void epollManager::run()
             }
         }
         reapZombies();
-
     }
     INFO("Boucle epoll arretee proprement");
 }
@@ -991,8 +1006,13 @@ void epollManager::armWriteEvent(int clientFd, bool enable)
     struct epoll_event ev; 
     ev.data.fd = clientFd; 
     ev.events = EPOLLIN;
-    if (enable) ev.events |= EPOLLOUT;
-    if (epoll_ctl(_epollFd, EPOLL_CTL_MOD, clientFd, &ev) == -1) { ERROR_SYS("epoll_ctl mod client"); }
+    /* if (_clientConnections.find(clientFd) == _clientConnections.end()) {
+        return;
+    } */
+    if (enable)
+        ev.events |= EPOLLOUT;
+    if (epoll_ctl(_epollFd, EPOLL_CTL_MOD, clientFd, &ev) == -1)
+        ERROR_SYS("epoll_ctl mod client");
 }
 
 /* void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
@@ -1074,6 +1094,10 @@ void epollManager::purgeClient(int clientFd)
 
 void epollManager::closeClient(int clientFd)
 {
+    if (_clientConnections.find(clientFd) == _clientConnections.end()){
+        //std::cout << "BONJOURRRRRRRRR" << std::endl;
+        return;
+    }
     std::map<int, ClientConnection>::iterator it = _clientConnections.find(clientFd);
     if (it != _clientConnections.end()) {
         ClientConnection& c = it->second;
@@ -1082,16 +1106,20 @@ void epollManager::closeClient(int clientFd)
                 kill(c.cgiPid, SIGKILL);
                 waitpid(c.cgiPid, NULL, 0);
                 c.cgiPid = -1;
+                if (_activeCgiCount > 0)
+                    --_activeCgiCount;
             }
             if (c.cgiInFd != -1) {
-                epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiInFd, NULL);
+                if (_epollFd != -1)
+                    epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiInFd, NULL);
                 close(c.cgiInFd);
                 _cgiInToClient.erase(c.cgiInFd);
                 c.cgiInFd = -1;
                 c.cgiRunning = false;
             }
             if (c.cgiOutFd != -1) {
-                epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiOutFd, NULL);
+                if (_epollFd != -1)
+                    epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiOutFd, NULL);
                 close(c.cgiOutFd);
                 _cgiOutToClient.erase(c.cgiOutFd);
                 c.cgiOutFd = -1;
@@ -1099,7 +1127,8 @@ void epollManager::closeClient(int clientFd)
             }
         }
     }
-    epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, NULL);
+    if (_epollFd != -1)
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, NULL);
     close(clientFd);
     _clientConnections.erase(it);
 }

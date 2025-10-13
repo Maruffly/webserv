@@ -77,7 +77,7 @@ int createGroupSocket(std::vector<Server*> &servers, std::map<std::string, std::
 int main(int argc, char** argv)
 {
     std::vector<Server*> servers;
-    try 
+    try
     {
         std::string configPath;
         ParseConfig parser;
@@ -120,7 +120,7 @@ int main(int argc, char** argv)
 
         destroyServers(servers);
     }
-    catch (const std::exception& e) 
+    catch (const std::exception& e)
     {
         destroyServers(servers);
         ERROR("Erreur fatale: " + std::string(e.what()));

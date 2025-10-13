@@ -14,6 +14,7 @@ bool epollManager::startCgiFor(int clientFd, const Request& request, const Serve
 	if (_activeCgiCount >= MAX_CGI_PROCESS) {
         LOG("Refus de CGI : limite de " + toString(MAX_CGI_PROCESS) + " atteinte");
         sendErrorResponse(clientFd, 503, "Server Busy");
+        _activeCgiCount = 0;
         return false;
     }
     int pin[2], pout[2];
@@ -220,25 +221,6 @@ void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
         // Pipe plein temporairement — attendre le prochain EPOLLOUT.
         return ;
     }
-    /* if (w == -1)
-    {
-        int err = errno;
-        if (err == EAGAIN || err == EWOULDBLOCK)
-        {
-            if (errno == EAGAIN)
-                LOG("EAGAIN on write() to CGI stdin");
-
-            
-            return;
-        }
-        if (err == EINTR)
-        {
-            // Interruption système — on peut réessayer plus tard.
-            return;
-        }
-        // Erreur fatale — nettoyer et répondre erreur
-    } */
-
     // Si on arrive ici -> erreur non-récupérable
     LOG("Fatal write to CGI stdin, errno=" + toString(errno));
     if (conn.cgiPid > 0)
@@ -302,44 +284,75 @@ static void parseCgiOutputToResponse(const std::string& cgiOutput, Response& res
 void epollManager::finalizeCgiFor(int clientFd)
 {
     ClientConnection &conn = _clientConnections[clientFd];
-	conn.keepAlive = false;
-    // Reap child if finished
+    conn.keepAlive = false;
+    
+    // Nettoyer d'abord les file descriptors
+    if (conn.cgiInFd != -1) {
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, conn.cgiInFd, NULL);
+        close(conn.cgiInFd);
+        _cgiInToClient.erase(conn.cgiInFd);
+        conn.cgiInFd = -1;
+    }
+    
+    if (conn.cgiOutFd != -1) {
+        epoll_ctl(_epollFd, EPOLL_CTL_DEL, conn.cgiOutFd, NULL);
+        close(conn.cgiOutFd);
+        _cgiOutToClient.erase(conn.cgiOutFd);
+        conn.cgiOutFd = -1;
+    }
+
+    // Reap child NON-BLOQUANT
     if (conn.cgiPid > 0) {
-		int st;
-		waitpid(conn.cgiPid, &st, 0);
-		if (_activeCgiCount > 0)
+        int st;
+        pid_t result = waitpid(conn.cgiPid, &st, WNOHANG);
+        if (result > 0) {
+            // Processus terminé
+            LOG("CGI PID=" + toString(conn.cgiPid) + " finished (active left=" + toString(_activeCgiCount) + ")");
+        } else if (result == 0) {
+            // Processus toujours en cours, le tuer
+            kill(conn.cgiPid, SIGKILL);
+            waitpid(conn.cgiPid, &st, 0);
+        }
+        conn.cgiPid = -1;
+    }
+
+    // Décrémenter le compteur UNIQUEMENT si cgiRunning était vrai
+    if (conn.cgiRunning) {
+        if (_activeCgiCount > 0) {
             _activeCgiCount--;
-        LOG("CGI PID=" + toString(conn.cgiPid) + " finished (active left=" + toString(_activeCgiCount) + ")");
-	}
+        }
+        conn.cgiRunning = false;
+    }
+
     if (conn.cgiOutBuffer.empty()) {
-        conn.keepAlive = false;
         sendErrorResponse(clientFd, 502, "Bad Gateway");
         return;
     }
+    
     // Build response from CGI output
-    Response resp; parseCgiOutputToResponse(conn.cgiOutBuffer, resp);
-    // HEAD handling: keep headers, strip body but keep original length
+    Response resp; 
+    parseCgiOutputToResponse(conn.cgiOutBuffer, resp);
+    
+    // HEAD handling
     if (conn.method == "HEAD") {
         size_t len = resp.getBodyLength();
         resp.setHeader("Content-Length", toString(len));
         resp.setBody("");
     }
+    
     if (conn.keepAlive) {
         resp.setHeader("Connection", "keep-alive");
         resp.setHeader("Keep-Alive", "timeout=5, max=100");
     } else {
         resp.setHeader("Connection", "close");
     }
+    
     attachSessionCookie(resp, conn);
     std::string out = resp.getResponse();
     conn.outBuffer = out;
-	conn.outOffset = 0;
-	conn.hasResponse = true;
-	armWriteEvent(clientFd, true);
-    conn.cgiRunning = false; 
-	conn.cgiPid = -1;
-	conn.cgiOutBuffer.clear();
-	/* if (!conn.keepAlive) {
-        closeClient(clientFd);
-    } */
+    conn.outOffset = 0;
+    conn.hasResponse = true;
+    armWriteEvent(clientFd, true);
+    
+    conn.cgiOutBuffer.clear();
 }
