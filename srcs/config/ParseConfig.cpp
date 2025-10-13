@@ -1,3 +1,4 @@
+#include <set>
 #include "ParseConfig.hpp"
 #include "LocationConfig.hpp"
 #include "../utils/ParserUtils.hpp"
@@ -8,6 +9,10 @@
 #include <sstream>
 
 
+namespace {
+    std::set<std::string> g_usedEndpoints;
+}
+
 ParseConfig::ParseConfig() : _pos(0) {}
 
 ParseConfig::~ParseConfig(){}
@@ -16,8 +21,13 @@ void ParseConfig::validateServerConfig(const ServerConfig& server) {
 	// check listen
 	if (server.getListen().empty())
 		throw ParseConfigException("Missing required directive 'listen' in server block", "server");
+	const std::vector<std::string>& listens = server.getListen();
+	for (size_t i = 0; i < listens.size(); ++i) {
+		const std::string& listenValue = listens[i];
+		if (!g_usedEndpoints.insert(listenValue).second)
+			throw ParseConfigException("Duplicate listen directive for " + listenValue, "listen");
+	}
 	// check server_name
-	std::cout << "SERVE_NAME : " << server.getServerName() << std::endl;
 	if (server.getServerName().empty())
 		throw ParseConfigException("Missing required directive 'server_name' in server block", "server");
 	// check root (server / location)
@@ -505,6 +515,8 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 }
 
 std::vector<ServerConfig> ParseConfig::parse(const std::string& configPath){
+
+    g_usedEndpoints.clear();
 		std::ifstream file(configPath.c_str());
 		if (!file.is_open()) {
 			throw std::runtime_error("Error: Cannot open config file: " + configPath);
