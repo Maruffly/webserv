@@ -24,6 +24,7 @@ class epollManager
         std::map<int, ServerConfig> _serverForClientFd;             // mapping client fd -> selected ServerConfig
 
         // CGI pipe fd -> client fd
+
         std::map<int,int> _cgiOutToClient;
         std::map<int,int> _cgiInToClient;
 
@@ -72,8 +73,13 @@ class epollManager
         epollManager(const std::vector<int>& listenFds, const std::vector< std::vector<ServerConfig> >& serverGroups);
         ~epollManager();
 
+        pid_t pin[2];
+        pid_t pout[2];
         void requestStop();
         void run();
         void gracefulShutdown();
-
+        void saveConnInfo(ClientConnection &conn, pid_t pid);
+        std::vector<char*>  buildEnv(std::string &scriptPath, const Request &request, const ServerConfig &config, const LocationConfig* location, ClientConnection &conn);
+        void                execChild(std::string &scriptPath, const Request &request, 
+        const ServerConfig &config, const LocationConfig* location, ClientConnection &conn);
 };
