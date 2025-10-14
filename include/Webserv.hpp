@@ -1,6 +1,9 @@
 #pragma once
 
-// ANSI color macros were previously misdefined and unused; removed to avoid confusion.
+#define GREEN "\033[32m"
+#define ORANGE "\033[38;5;208m"
+#define RED "\033[31m"
+#define RESET "\033[0m"
 
 // system
 #include <map>
@@ -39,7 +42,7 @@
 #define MAX_EVENTS 64
 #define MAX_REQUEST_SIZE 524288000
 #define MAX_CLIENTS 512 
-#define MAX_CGI_PROCESS 1500
+#define MAX_CGI_PROCESS 500
 #define CONNECTION_TIMEOUT 30
 #define READ_TIMEOUT 12
 #define KEEP_ALIVE_TIMEOUT 10 
@@ -55,13 +58,13 @@ std::string toString(const T &value)
     return oss.str();
 }
 
-inline void LOG(const std::string& msg) { std::cout << "[LOG] " << msg << std::endl; }
+inline void LOG(const std::string& msg) { std::cout << GREEN << "[LOG]" << RESET << " " << msg << std::endl; }
 
-inline void ERROR(const std::string& msg) { std::cerr << "[ERR] " << msg << std::endl; }
+inline void INFO(const std::string& msg) { std::cout << ORANGE << "[INF]" << RESET << " " << msg << std::endl; }
+
+inline void ERROR(const std::string& msg) { std::cerr << RED << "[ERR]" << RESET << " " << msg << std::endl; }
 
 inline void ERROR_SYS(const std::string& msg)
 {
-    std::cerr << "[ERR] " << msg << " (" << strerror(errno) << ")" << std::endl;
+    std::cerr << RED << "[ERR]" << RESET << " " << msg << " (" << strerror(errno) << ")" << std::endl;
 }
-
-inline void INFO(const std::string& msg) { std::cout << "[INF] " << msg << std::endl; }

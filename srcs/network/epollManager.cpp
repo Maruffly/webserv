@@ -202,7 +202,6 @@ epollManager::epollManager(const std::vector<int>& listenFds, const std::vector<
     _epollFd = epoll_create1(0);
     if (_epollFd == -1)
         throw std::runtime_error("epoll_create1 failed");
-    LOG("epoll instance created");
 
     if (listenFds.size() != serverGroups.size()) {
         throw std::runtime_error("listenFds and serverConfigs size mismatch");
@@ -221,7 +220,6 @@ epollManager::epollManager(const std::vector<int>& listenFds, const std::vector<
             throw std::runtime_error("Failed to add server socket to epoll");
         }
     }
-    LOG("All server sockets added to epoll");
 }
 
 
@@ -539,7 +537,7 @@ void epollManager::handleReadyRequest(int clientFd)
             ensureSessionFor(conn, request);
             bool wantsCgi = (location && location->isCgiRequest(conn.uri));
             if (wantsCgi) {
-                if (!launchCgi(clientFd, request, cfg, location)){
+                if (!startCgiFor(clientFd, request, cfg, location)){
                     queueErrorResponse(clientFd, 502, "Bad Gateway");
                 }
             } else {
@@ -1178,7 +1176,6 @@ void epollManager::reapZombies()
 void epollManager::run()
 {
     struct epoll_event events[MAX_EVENTS];
-    INFO("Demarrage de la boucle epoll unifiee...");
     while (_running)
     {
         int num = epoll_wait(_epollFd, events, MAX_EVENTS, 1000);
@@ -1216,7 +1213,6 @@ void epollManager::run()
         }
         reapZombies();
     }
-    INFO("Boucle epoll arretee proprement");
 }
 
 
@@ -1280,4 +1276,16 @@ void epollManager::closeClientSocket(int clientFd)
         epoll_ctl(_epollFd, EPOLL_CTL_DEL, clientFd, NULL);
     close(clientFd);
     _clientConnections.erase(it);
+}
+
+
+void epollManager::armWriteEvent(int clientFd, bool enable)
+{
+    struct epoll_event ev; 
+    ev.data.fd = clientFd; 
+    ev.events = EPOLLIN;
+    if (enable)
+        ev.events |= EPOLLOUT;
+    if (epoll_ctl(_epollFd, EPOLL_CTL_MOD, clientFd, &ev) == -1)
+        ERROR_SYS("epoll_ctl mod client");
 }

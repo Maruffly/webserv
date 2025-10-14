@@ -1,22 +1,6 @@
 #include "Server.hpp"
 #include "epollManager.hpp"
 
-// Server::Server(int port, const std::string& host) : _serverSocket(-1), _port(port), _host(host) 
-// {
-// 	// convert int into string
-// 	std::ostringstream portStr;
-// 	portStr << _port;
-	
-// 	LOG("Initializing server on " + _host + ":" + portStr.str());
-	
-// 	createSocket();
-// 	setSocketOptions();
-// 	bindSocket();
-// 	startListening();
-	
-// 	INFO("Server ready and listening on " + _host + ":" + portStr.str());
-// }
-
 
 Server::Server(ServerConfig& config) : _serverSocket(-1), _config(config)
 {
@@ -26,14 +10,10 @@ Server::Server(ServerConfig& config) : _serverSocket(-1), _config(config)
     std::ostringstream portStr;
     portStr << _port;
     
-    LOG("Initializing server from config: " + _host + ":" + portStr.str());
-    
     createSocket();
     setSocketOptions();
     bindSocket();
     startListening();
-    
-    INFO("Server ready and listening on " + _host + ":" + portStr.str());
 }
 
 
@@ -49,10 +29,7 @@ Server::~Server()
 void Server::createSocket() 
 {
 	_serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-	if (_serverSocket == -1) {
-		throw std::runtime_error("Failed to create socket");
-	}
-	LOG("Socket created successfully");
+	if (_serverSocket == -1) { throw std::runtime_error("Failed to create socket"); }
 }
 
 
@@ -63,7 +40,6 @@ void Server::setSocketOptions()
 		close(_serverSocket);
 		throw std::runtime_error("Failed to set socket options (SO_REUSEADDR)");
 	}
-	LOG("Socket options set (SO_REUSEADDR)");
 }
 
 
@@ -71,12 +47,12 @@ void Server::bindSocket()
 {
 	struct sockaddr_in serverAddress;
 	
-	// Configuration de l'adresse
+	// Address config
 	std::memset(&serverAddress, 0, sizeof(serverAddress));
 	serverAddress.sin_family = AF_INET;
 	serverAddress.sin_port = htons(_port);
 	
-	// Conversion de l'adresse IP
+	// IP address conversion
 	if (inet_pton(AF_INET, _host.c_str(), &serverAddress.sin_addr) <= 0) {
 		close(_serverSocket);
 		throw std::runtime_error("Invalid address or address not supported");
@@ -87,13 +63,12 @@ void Server::bindSocket()
 		close(_serverSocket);
 		throw std::runtime_error("Bind failed");
 	}
-	LOG("Socket bound to " + _host + ":" + toString(_port));
 }
 
 
 void Server::startListening() 
 {
-	// Met le socket d'écoute en non-bloquant pour respecter la boucle I/O non bloquante
+	// Sets listening socket to non blocking to I/O loop
 	int flags = fcntl(_serverSocket, F_GETFL, 0);
 	if (flags != -1) {
 		fcntl(_serverSocket, F_SETFL, flags | O_NONBLOCK);
@@ -103,7 +78,6 @@ void Server::startListening()
 		close(_serverSocket);
 		throw std::runtime_error("Listen failed");
 	}
-	LOG("Socket is now listening");
 }
 
 

@@ -1,53 +1,10 @@
 #include "epollManager.hpp"
 #include "Cookie.hpp"
 
-// Starts a CGI process and wires its pipes into the epoll loop.
-bool epollManager::launchCgi(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location)
-{
-    ClientConnection &conn = _clientConnections[clientFd];
-    // Resolve script path
-    std::string scriptPath = resolveFilePath(conn.uri, config);
-    if (scriptPath.empty() || !fileExists(scriptPath)) {
-        queueErrorResponse(clientFd, 404, "Not Found");
-        return false;
-    }
-	std::cout << "CGI ACTIVE COUNT = " << _activeCgiCount << std::endl;
-	if (_activeCgiCount >= MAX_CGI_PROCESS) {
-        LOG("Refus de CGI : limite de " + toString(MAX_CGI_PROCESS) + " atteinte");
-        queueErrorResponse(clientFd, 503, "Server Busy");
-        _activeCgiCount = 0;
-        return false;
-    }
-    int pin[2], pout[2];
-	if (pipe(pin) == -1 || pipe(pout) == -1) {
-		queueErrorResponse(clientFd, 502, "Bad Gateway");
-		return false;
-	}
-    // nonblocking
-    fcntl(pin[1], F_SETFL, fcntl(pin[1], F_GETFL, 0) | O_NONBLOCK);
-    fcntl(pout[0], F_SETFL, fcntl(pout[0], F_GETFL, 0) | O_NONBLOCK);
-
-    pid_t pid = fork();
-	if (pid == -1) {
-		safeClose(pin);
-		safeClose(pout);
-		queueErrorResponse(clientFd, 502, "Bad Gateway");
-		return false;
-	}
-    if (pid == 0) {
-        // child
-        // chdir to script directory
-        std::string dir = dirnameOf(scriptPath);
-        chdir(dir.c_str());
-        // dup stdio
-        dup2(pin[0], STDIN_FILENO);
-		dup2(pout[1], STDOUT_FILENO);
-		dup2(pout[1], STDERR_FILENO);
-        safeClose(pin);
-		safeClose(pout);
-        // Build env
+ std::vector<char*> epollManager::buildEnv(std::string &scriptPath, const Request &request, 
+    const ServerConfig &config, const LocationConfig* location, ClientConnection &conn){
+     
         std::vector<std::string> envStore;
-        std::vector<char*> envp;
         std::string rawUri = request.getUri();
         std::string pathInfo = rawUri;
         std::string queryString;
@@ -74,25 +31,29 @@ bool epollManager::launchCgi(int clientFd, const Request& request, const ServerC
         envStore.push_back(std::string("SERVER_PORT=") + toString(config.getPort()));
         envStore.push_back(std::string("REMOTE_ADDR=") + conn.remoteAddr);
         envStore.push_back(std::string("DOCUMENT_ROOT=") + documentRoot);
-        if (request.getMethod() == "POST") {
-            envStore.push_back(std::string("CONTENT_LENGTH=") + toString(request.getBody().size()));
-            envStore.push_back(std::string("CONTENT_TYPE=") + request.getHeader("Content-Type"));
-        }
-        // HTTP_*
-        const std::map<std::string,std::string>& hdrs = request.getHeaders();
-        for (std::map<std::string,std::string>::const_iterator it = hdrs.begin(); it != hdrs.end(); ++it) {
-            std::string name = toUpperCase(replaceChars(it->first, "-", "_"));
-            envStore.push_back(std::string("HTTP_") + name + std::string("=") + it->second);
-        }
-        if (location) {
-            const std::map<std::string, std::string>& cgiParams = location->getCgiParams();
-            for (std::map<std::string, std::string>::const_iterator pit = cgiParams.begin(); pit != cgiParams.end(); ++pit) {
-                envStore.push_back(pit->first + std::string("=") + pit->second);
-            }
-        }
+
+        std::vector<char*> envp;
         for (size_t i=0;i<envStore.size();++i)
 			envp.push_back(strdup(envStore[i].c_str()));
         envp.push_back(NULL);
+        return envp;
+}
+void epollManager::execChild(std::string &scriptPath, const Request &request, 
+    const ServerConfig &config, const LocationConfig* location, ClientConnection &conn){
+        // chdir to script directory
+        std::string dir = dirnameOf(scriptPath);
+        chdir(dir.c_str());
+        // dup stdio
+        dup2(pin[0], STDIN_FILENO);
+		dup2(pout[1], STDOUT_FILENO);
+		dup2(pout[1], STDERR_FILENO);
+        safeClose(pin);
+		safeClose(pout);
+
+        // Build env
+        std::vector<char*> envp;
+        envp = buildEnv(scriptPath, request, config, location, conn);
+
         // Args (interpreter optional)
         std::vector<char*> args;
         std::string ext = getFileExtension(scriptPath);
@@ -107,7 +68,8 @@ bool epollManager::launchCgi(int clientFd, const Request& request, const ServerC
         else interpreter = it->second;
         if (!interpreter.empty()) {
 			args.push_back(strdup(interpreter.c_str()));
-			args.push_back(strdup(scriptPath.c_str())); }
+			args.push_back(strdup(scriptPath.c_str()));
+        }
         else 
 			args.push_back(strdup(scriptPath.c_str()));
         args.push_back(NULL);
@@ -117,10 +79,53 @@ bool epollManager::launchCgi(int clientFd, const Request& request, const ServerC
 			execve(scriptPath.c_str(), args.data(), envp.data());
         // If execve fails
         _exit(1);
+}
+void epollManager::saveConnInfo(ClientConnection &conn, pid_t pid){
+    conn.cgiRunning = true;
+	conn.cgiPid = pid;
+	conn.cgiInFd = pin[1];
+	conn.cgiOutFd = pout[0];
+	conn.cgiInOffset = 0;
+	conn.cgiStart = time(NULL);
+}
+
+bool epollManager::startCgiFor(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location)
+{
+    ClientConnection &conn = _clientConnections[clientFd];
+
+   std::string scriptPath = resolveFilePath(conn.uri, config);
+    if (scriptPath.empty() || !fileExists(scriptPath)) {
+        sendErrorResponse(clientFd, 404, "Not Found");
+        return false;
     }
+	if (_activeCgiCount >= MAX_CGI_PROCESS) {
+        LOG("CGI refused : limite of " + toString(MAX_CGI_PROCESS) + " reached");
+        sendErrorResponse(clientFd, 503, "Server Busy");
+        return false;
+    }
+	if (pipe(pin) == -1 || pipe(pout) == -1) {
+		sendErrorResponse(clientFd, 502, "Bad Gateway");
+		return false;
+	}
+    // nonblocking
+    fcntl(pin[1], F_SETFL, fcntl(pin[1], F_GETFL, 0) | O_NONBLOCK);
+    fcntl(pout[0], F_SETFL, fcntl(pout[0], F_GETFL, 0) | O_NONBLOCK);
+
+    pid_t pid = fork();
+	if (pid == -1) {
+		safeClose(pin);
+		safeClose(pout);
+		sendErrorResponse(clientFd, 502, "Bad Gateway");
+		return false;
+	}
+    // child
+    if (pid == 0)
+        execChild(scriptPath, request, config, location, conn);
+
     // parent
     close(pin[0]);
 	close(pout[1]);
+
     // register fds to epoll
     struct epoll_event ev;
     ev.data.fd = pout[0];
@@ -132,20 +137,16 @@ bool epollManager::launchCgi(int clientFd, const Request& request, const ServerC
     _cgiOutToClient[pout[0]] = clientFd;
 	 _activeCgiCount++;
 
-    // Register input if there is a body to send
+    // register input if there is a body to send
     if (!conn.body.empty()) {
 		ev.data.fd = pin[1];
 		ev.events = EPOLLOUT;
 		if (epoll_ctl(_epollFd, EPOLL_CTL_ADD, pin[1], &ev) == -1)
 			ERROR_SYS("epoll_ctl add cgi in");
-		_cgiInToClient[pin[1]] = clientFd; 
+		_cgiInToClient[pin[1]] = clientFd;
 	}
-    conn.cgiRunning = true;
-	conn.cgiPid = pid;
-	conn.cgiInFd = pin[1];
-	conn.cgiOutFd = pout[0];
-	conn.cgiInOffset = 0;
-	conn.cgiStart = time(NULL);
+    // collect connection info
+    saveConnInfo(conn, pid);
     return true;
 }
 
@@ -184,7 +185,7 @@ void epollManager::feedCgiInput(int pipeFd, uint32_t events)
 
     if (conn.body.empty() || conn.cgiInFd == -1)
     {
-        // Rien à envoyer
+        // nothing to send
         epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
         close(pipeFd);
         _cgiInToClient.erase(pipeFd);
@@ -291,7 +292,7 @@ void epollManager::finalizeCgiResponse(int clientFd)
     ClientConnection &conn = _clientConnections[clientFd];
     conn.keepAlive = false;
     
-    // Nettoyer d'abord les file descriptors
+    // Clear fds
     if (conn.cgiInFd != -1) {
         epoll_ctl(_epollFd, EPOLL_CTL_DEL, conn.cgiInFd, NULL);
         close(conn.cgiInFd);
@@ -306,22 +307,23 @@ void epollManager::finalizeCgiResponse(int clientFd)
         conn.cgiOutFd = -1;
     }
 
-    // Reap child NON-BLOQUANT
+    // Reap child non blocking
     if (conn.cgiPid > 0) {
         int st;
         pid_t result = waitpid(conn.cgiPid, &st, WNOHANG);
         if (result > 0) {
-            // Processus terminé
+            // Ended process
             LOG("CGI PID=" + toString(conn.cgiPid) + " finished (active left=" + toString(_activeCgiCount) + ")");
-        } else if (result == 0) {
-            // Processus toujours en cours, le tuer
+        }
+        else if (result == 0) {
+            // Process still running -> kill it
             kill(conn.cgiPid, SIGKILL);
             waitpid(conn.cgiPid, &st, 0);
         }
         conn.cgiPid = -1;
     }
 
-    // Décrémenter le compteur UNIQUEMENT si cgiRunning était vrai
+    // Decrement cgi count if running
     if (conn.cgiRunning) {
         if (_activeCgiCount > 0) {
             _activeCgiCount--;
@@ -334,30 +336,20 @@ void epollManager::finalizeCgiResponse(int clientFd)
         return;
     }
     
-    // Build response from CGI output
+    // build response from CGI output
     Response resp; 
     parseCgiOutputToResponse(conn.cgiOutBuffer, resp);
-    
-    // HEAD handling
-    if (conn.method == "HEAD") {
-        size_t len = resp.getBodyLength();
-        resp.setHeader("Content-Length", toString(len));
-        resp.setBody("");
-    }
-    
     if (conn.keepAlive) {
         resp.setHeader("Connection", "keep-alive");
         resp.setHeader("Keep-Alive", "timeout=5, max=100");
     } else {
         resp.setHeader("Connection", "close");
     }
-    
     attachSessionCookie(resp, conn);
     std::string out = resp.getResponse();
     conn.outBuffer = out;
     conn.outOffset = 0;
     conn.hasResponse = true;
-    updateClientInterest(clientFd, true);
-    
+    armWriteEvent(clientFd, true);
     conn.cgiOutBuffer.clear();
 }

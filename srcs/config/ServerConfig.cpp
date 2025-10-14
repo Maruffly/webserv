@@ -179,10 +179,9 @@ bool ServerConfig::getAutoindex() const{
 	return _autoindex;
 }
 
-void ServerConfig::addLocation(const LocationConfig& location) {
+void ServerConfig::addLocation(const LocationConfig& location) 
+{
 	_locations.push_back(location);
-	std::cout << "Added location: " << location.getPath() << std::endl;
-    std::cout << "Total locations now: " << _locations.size() << std::endl; // Debug
 }
 
 void ServerConfig::addErrorPage(int errorCode, const std::string& path) {

@@ -61,13 +61,14 @@ int createGroupSocket(std::vector<Server*> &servers, std::map<std::string, std::
                 servers.push_back(srv);
                 listenFds.push_back(srv->getSocket());
                 serverGroups.push_back(group);
-                INFO("Groupe ecoute sur " + group[0].getHost() + ":" + toString(group[0].getPort()) + " avec " + toString(group.size()) + " vhost(s)");
-            } catch (const std::exception& e) {
-                ERROR("Echec creation socket pour groupe " + it->first + ": " + std::string(e.what()));
+            } catch (const std::exception& e) 
+            {
+                ERROR("Failed to create socket for " + it->first + ": " + std::string(e.what()));
             }
         }
-        if (listenFds.empty()) {
-            ERROR("Aucun socket d'ecoute cree");
+        if (listenFds.empty()) 
+        {
+            ERROR("No listening socket created");
             destroyServers(servers);
             return 1;
         }
@@ -86,20 +87,19 @@ int main(int argc, char** argv)
 
         if (argc < 2) {
             configPath = "./config/default.conf";
-            LOG("Aucun fichier de configuration fourni, utilisation de la configuration par défaut: " + configPath);
+            LOG("Using default configuration: " + configPath);
             usingDefault = true;
         } else {
             configPath = argv[1];
         }
-        LOG("Chargement du fichier de configuration: " + configPath);
         std::vector<ServerConfig> serverConfigs = parser.parse(configPath);
 
         if (serverConfigs.empty())
         {
-            ERROR("Aucune configuration de serveur valide trouvée dans " + configPath);
+            ERROR("No valid server configuration found in " + configPath);
             return 1;
         }
-        LOG("Configurations detectees: " + toString(serverConfigs.size()));
+        LOG("Number of server blocks detected: " + toString(serverConfigs.size()));
         // Grouper les serveurs par couple host:port (supporte plusieurs listen par server)
         groupHostPort(serverConfigs, groups);
 
@@ -123,7 +123,7 @@ int main(int argc, char** argv)
     catch (const std::exception& e)
     {
         destroyServers(servers);
-        ERROR("Erreur fatale: " + std::string(e.what()));
+        ERROR("Fatal error: " + std::string(e.what()));
         return 1;
     }
     return 0;
