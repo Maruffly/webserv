@@ -1,25 +1,26 @@
 #include "epollManager.hpp"
 #include "Cookie.hpp"
 
-bool epollManager::startCgiFor(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location)
+// Starts a CGI process and wires its pipes into the epoll loop.
+bool epollManager::launchCgi(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location)
 {
     ClientConnection &conn = _clientConnections[clientFd];
     // Resolve script path
     std::string scriptPath = resolveFilePath(conn.uri, config);
     if (scriptPath.empty() || !fileExists(scriptPath)) {
-        sendErrorResponse(clientFd, 404, "Not Found");
+        queueErrorResponse(clientFd, 404, "Not Found");
         return false;
     }
 	std::cout << "CGI ACTIVE COUNT = " << _activeCgiCount << std::endl;
 	if (_activeCgiCount >= MAX_CGI_PROCESS) {
         LOG("Refus de CGI : limite de " + toString(MAX_CGI_PROCESS) + " atteinte");
-        sendErrorResponse(clientFd, 503, "Server Busy");
+        queueErrorResponse(clientFd, 503, "Server Busy");
         _activeCgiCount = 0;
         return false;
     }
     int pin[2], pout[2];
 	if (pipe(pin) == -1 || pipe(pout) == -1) {
-		sendErrorResponse(clientFd, 502, "Bad Gateway");
+		queueErrorResponse(clientFd, 502, "Bad Gateway");
 		return false;
 	}
     // nonblocking
@@ -30,7 +31,7 @@ bool epollManager::startCgiFor(int clientFd, const Request& request, const Serve
 	if (pid == -1) {
 		safeClose(pin);
 		safeClose(pout);
-		sendErrorResponse(clientFd, 502, "Bad Gateway");
+		queueErrorResponse(clientFd, 502, "Bad Gateway");
 		return false;
 	}
     if (pid == 0) {
@@ -148,7 +149,8 @@ bool epollManager::startCgiFor(int clientFd, const Request& request, const Serve
     return true;
 }
 
-void epollManager::handleCgiOutEvent(int pipeFd, uint32_t events)
+// Reads CGI stdout and appends it to the client connection buffer.
+void epollManager::drainCgiOutput(int pipeFd, uint32_t events)
 {
     (void)events;
     int clientFd = _cgiOutToClient[pipeFd];
@@ -167,13 +169,14 @@ void epollManager::handleCgiOutEvent(int pipeFd, uint32_t events)
 		close(pipeFd);
 		_cgiOutToClient.erase(pipeFd);
 		conn.cgiOutFd = -1;
-        finalizeCgiFor(clientFd);
+        finalizeCgiResponse(clientFd);
         return;
     }
     // n == -1: EAGAIN or transient; do nothing
 }
 
-void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
+// Writes the request body to the CGI stdin pipe when ready.
+void epollManager::feedCgiInput(int pipeFd, uint32_t events)
 {
     (void)events;
     int clientFd = _cgiInToClient[pipeFd];
@@ -243,9 +246,10 @@ void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
     }
     conn.cgiInFd = -1;
     conn.cgiRunning = false;
-    sendErrorResponse(clientFd, 500, "Internal Server Error");
+    queueErrorResponse(clientFd, 500, "Internal Server Error");
 }
 
+// Parses the CGI stdout and fills the Response headers/body.
 static void parseCgiOutputToResponse(const std::string& cgiOutput, Response& response)
 {
     size_t headerEnd = cgiOutput.find("\r\n\r\n");
@@ -281,7 +285,8 @@ static void parseCgiOutputToResponse(const std::string& cgiOutput, Response& res
     }
 }
 
-void epollManager::finalizeCgiFor(int clientFd)
+// Converts the CGI output into an HTTP response once the script ends.
+void epollManager::finalizeCgiResponse(int clientFd)
 {
     ClientConnection &conn = _clientConnections[clientFd];
     conn.keepAlive = false;
@@ -325,7 +330,7 @@ void epollManager::finalizeCgiFor(int clientFd)
     }
 
     if (conn.cgiOutBuffer.empty()) {
-        sendErrorResponse(clientFd, 502, "Bad Gateway");
+        queueErrorResponse(clientFd, 502, "Bad Gateway");
         return;
     }
     
@@ -352,7 +357,7 @@ void epollManager::finalizeCgiFor(int clientFd)
     conn.outBuffer = out;
     conn.outOffset = 0;
     conn.hasResponse = true;
-    armWriteEvent(clientFd, true);
+    updateClientInterest(clientFd, true);
     
     conn.cgiOutBuffer.clear();
 }

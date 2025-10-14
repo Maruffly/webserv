@@ -4,89 +4,64 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Welcome to Webserv</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 40px;
-            background-color: #f5f5f5;
-            line-height: 1.6;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #2c3e50;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 10px;
-        }
-        .success {
-            color: #27ae60;
-            font-weight: bold;
-        }
-        .info {
-            background: #ecf0f1;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-        .links {
-            margin-top: 30px;
-        }
-        .links a {
-            display: inline-block;
-            margin: 5px 10px 5px 0;
-            padding: 8px 15px;
-            background: #3498db;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            transition: background 0.3s;
-        }
-        .links a:hover {
-            background: #2980b9;
-        }
-    </style>
+    <link rel="stylesheet" href="/assets/theme.css">
 </head>
 <body>
-    <div class="container">
-        <h1>🚀 Welcome to Webserv!</h1>
-        <p class="success">✅ Server is running successfully!</p>
-        
-        <div class="info">
-            <h3>Server Information:</h3>
-            <ul>
-                <li><strong>Server:</strong> webserv/1.0</li>
-                <li><strong>Port:</strong> 8080</li>
-                <li><strong>Root Directory:</strong> ./www/html</li>
-                <li><strong>Configuration:</strong> linux.conf</li>
-            </ul>
-        </div>
+    <main class="card card--wide">
+        <div class="card-content">
+            <div class="pill">✅ Server running</div>
+            <h1 class="hero-title"><span>🚀</span> Welcome to Webserv</h1>
+            <p class="subtitle">Your custom C++ HTTP server is alive and serving content with a sleek new interface.</p>
 
-        <h3>Test Different Locations:</h3>
-        <div class="links">
-            <a href="/">Home</a>
-            <a href="/uploads/">Uploads Directory</a>
-            <a href="/cgi-bin/">CGI Scripts</a>
-            <a href="/admin">Admin Area</a>
-            <a href="/nonexistent">Test 404 Error</a>
-            <a href="/delete-test.html">Test DELETE</a>
-            <a href="/cookies.html">Cookie Tester</a>
-        </div>
+            <div class="grid">
+                <section>
+                    <h2>Server snapshot</h2>
+                    <ul>
+                        <li>🖥️ <strong>Server:</strong> webserv/1.0</li>
+                        <li>🌐 <strong>Listen:</strong> 8080</li>
+                        <li>📁 <strong>Root:</strong> ./www/html</li>
+                        <li>⚙️ <strong>Config:</strong> linux.conf</li>
+                    </ul>
+                </section>
 
-        <h3>Quick Upload (POST)</h3>
-        <form id="quickUpload" action="/uploads/" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" required>
-            <button type="submit">Upload</button>
-        </form>
-        <small>The file will be saved under <code>/uploads/</code>.</small>
-        <pre id="quickOut" style="background:#f6f8fa;padding:10px;border-radius:6px;overflow:auto;margin-top:10px"></pre>
-        <script>
+                <section>
+                    <h2>Explore routes</h2>
+                    <div class="links">
+                        <a class="btn" href="/">Home</a>
+                        <a class="btn" href="/uploads/">Uploads</a>
+                        <a class="btn" href="/cgi-bin/">CGI Scripts</a>
+                        <a class="btn" href="/admin">Admin Area</a>
+                        <a class="btn" href="/nonexistent">Test 404</a>
+                        <a class="btn" href="/delete-test.html">DELETE Demo</a>
+                        <a class="btn" href="/cookies.html">Cookie Tester</a>
+                    </div>
+                </section>
+
+                <section>
+                    <h2>Quick upload</h2>
+                    <form id="quickUpload" action="/uploads/" method="post" enctype="multipart/form-data">
+                        <input type="file" name="file" required>
+                        <button type="submit" class="btn">Upload file</button>
+                    </form>
+                    <small>The file will be saved under <code>/uploads/</code>.</small>
+                    <pre id="quickOut"></pre>
+                </section>
+
+                <section>
+                    <h2>Enabled features</h2>
+                    <ul>
+                        <li>✅ Static file serving</li>
+                        <li>✅ Location routing & redirects</li>
+                        <li>✅ Custom error pages</li>
+                        <li>✅ CGI execution (Python, PHP, ...)</li>
+                        <li>✅ File uploads with size limits</li>
+                        <li>✅ IP-restricted admin area</li>
+                    </ul>
+                </section>
+            </div>
+        </div>
+    </main>
+    <script>
         const qf = document.getElementById('quickUpload');
         const qo = document.getElementById('quickOut');
         qf.addEventListener('submit', async (e) => {
@@ -100,19 +75,6 @@
                 qo.textContent = 'Error: ' + err;
             }
         });
-        </script>
-
-        <div class="info">
-            <h3>Features Configured:</h3>
-            <ul>
-                <li>✅ Static file serving</li>
-                <li>✅ Multiple location blocks</li>
-                <li>✅ Error page handling</li>
-                <li>✅ CGI support (configured)</li>
-                <li>✅ Upload directory with custom size limits</li>
-                <li>✅ Admin area with IP restrictions</li>
-            </ul>
-        </div>
-    </div>
+    </script>
 </body>
 </html>

@@ -12,7 +12,158 @@
 #include <cctype>
 #include "Cookie.hpp"
 
-void resetConnectionState(ClientConnection& conn)
+namespace {
+// Splits the raw header buffer into the request line, header block and trailing body fragment.
+struct HeaderSections {
+    std::string requestLine;
+    std::string headerBlock;
+    std::string remainder;
+};
+
+// Extracts header sections from the client buffer. Returns false while headers are incomplete.
+bool extractHeaderSections(const std::string& buffer, HeaderSections& sections) {
+    size_t headerEnd = buffer.find("\r\n\r\n");
+    if (headerEnd == std::string::npos)
+        return false;
+
+    sections.headerBlock = buffer.substr(0, headerEnd);
+    sections.remainder = buffer.substr(headerEnd + 4);
+
+    size_t firstEol = sections.headerBlock.find("\r\n");
+    if (firstEol == std::string::npos)
+        return false;
+
+    sections.requestLine = sections.headerBlock.substr(0, firstEol);
+    sections.headerBlock.erase(0, firstEol + 2);
+    return true;
+}
+
+// Parses the request line and stores method, URI and version on the connection.
+bool parseRequestLine(const std::string& line, ClientConnection& conn) {
+    size_t firstSpace = line.find(' ');
+    size_t secondSpace = (firstSpace == std::string::npos) ? std::string::npos : line.find(' ', firstSpace + 1);
+    if (firstSpace == std::string::npos || secondSpace == std::string::npos)
+        return false;
+
+    conn.method = line.substr(0, firstSpace);
+    conn.uri = line.substr(firstSpace + 1, secondSpace - firstSpace - 1);
+    conn.version = line.substr(secondSpace + 1);
+    return true;
+}
+
+// Inserts an HTTP header line into the connection header map (lowercased name).
+void storeHeaderLine(const std::string& line, ClientConnection& conn) {
+    size_t colon = line.find(':');
+    if (colon == std::string::npos)
+        return;
+
+    std::string name = line.substr(0, colon);
+    std::string value = line.substr(colon + 1);
+    while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) value.erase(0, 1);
+    while (!name.empty() && (name[name.size() - 1] == ' ' || name[name.size() - 1] == '\t')) name.erase(name.size() - 1);
+    for (size_t i = 0; i < name.size(); ++i)
+        name[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(name[i])));
+    if (!name.empty())
+        conn.headers[name] = value;
+}
+
+// Parses all header lines following the request line.
+void parseHeaderBlock(const std::string& block, ClientConnection& conn) {
+    size_t lineStart = 0;
+    while (lineStart < block.size()) {
+        size_t lineEnd = block.find("\r\n", lineStart);
+        if (lineEnd == std::string::npos)
+            break;
+        std::string line = block.substr(lineStart, lineEnd - lineStart);
+        storeHeaderLine(line, conn);
+        lineStart = lineEnd + 2;
+    }
+}
+
+// Normalises the body handling strategy depending on Content-Length / Transfer-Encoding.
+void configureBodyStrategy(ClientConnection& conn, const std::string& remainder) {
+    std::string transferEncoding;
+    std::string contentLength;
+    std::map<std::string, std::string>::const_iterator teIt = conn.headers.find("transfer-encoding");
+    if (teIt != conn.headers.end())
+        transferEncoding = teIt->second;
+    std::map<std::string, std::string>::const_iterator clIt = conn.headers.find("content-length");
+    if (clIt != conn.headers.end())
+        contentLength = clIt->second;
+
+    std::string transferLower = transferEncoding;
+    for (size_t i = 0; i < transferLower.size(); ++i)
+        transferLower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(transferLower[i])));
+
+    if (!transferLower.empty() && transferLower.find("chunked") != std::string::npos) {
+        conn.bodyType = BODY_CHUNKED;
+        conn.chunkState = CHUNK_READ_SIZE;
+    } else if (!contentLength.empty()) {
+        conn.contentLength = static_cast<size_t>(std::strtoul(contentLength.c_str(), NULL, 10));
+        conn.bodyType = (conn.contentLength > 0) ? BODY_FIXED : BODY_NONE;
+    } else {
+        conn.bodyType = BODY_NONE;
+    }
+
+    conn.buffer.clear();
+    if (conn.bodyType == BODY_FIXED) {
+        conn.body.append(remainder);
+        conn.bodyReceived = conn.body.size();
+    } else if (conn.bodyType == BODY_CHUNKED) {
+        conn.chunkBuffer.append(remainder);
+    }
+}
+
+// Serialises the parsed connection data back into a raw HTTP request string.
+std::string buildRawHttpRequest(const ClientConnection& conn) 
+{
+    std::string raw = conn.method + " " + conn.uri + " " + conn.version + "\r\n";
+    for (std::map<std::string, std::string>::const_iterator it = conn.headers.begin(); it != conn.headers.end(); ++it) {
+        if (it->first == "transfer-encoding" || it->first == "content-length")
+            continue;
+        raw += it->first + ": " + it->second + "\r\n";
+    }
+    if (!conn.body.empty())
+        raw += std::string("Content-Length: ") + toString(conn.body.size()) + "\r\n";
+    raw += "\r\n";
+    raw += conn.body;
+    return raw;
+}
+
+// Applies keep-alive / close rules according to version and Connection header.
+void applyKeepAlivePolicy(ClientConnection& conn) 
+{
+    std::string connectionValue;
+    std::map<std::string, std::string>::iterator it = conn.headers.find("connection");
+    if (it != conn.headers.end())
+        connectionValue = it->second;
+
+    std::string connectionLower = connectionValue;
+    for (size_t i = 0; i < connectionLower.size(); ++i)
+        connectionLower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(connectionLower[i])));
+    bool explicitClose = connectionLower.find("close") != std::string::npos;
+    bool explicitKeep = connectionLower.find("keep-alive") != std::string::npos;
+
+    std::string versionUpper = conn.version;
+    for (size_t i = 0; i < versionUpper.size(); ++i)
+        versionUpper[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(versionUpper[i])));
+
+    if (explicitClose) 
+    {
+        conn.keepAlive = false;
+        return;
+    }
+    if (versionUpper == "HTTP/1.1")
+        conn.keepAlive = true;
+    else if (versionUpper == "HTTP/1.0")
+        conn.keepAlive = explicitKeep;
+    else
+        conn.keepAlive = explicitKeep;
+}
+
+}
+// Resets every per-request field so the connection can handle a new request.
+void resetClientState(ClientConnection& conn)
 {
     conn.headers.clear();
     conn.body.clear();
@@ -40,6 +191,8 @@ void resetConnectionState(ClientConnection& conn)
     conn.isReading = false;
 }
 
+
+// Registers every listening socket and prepares host:port groupings.
 epollManager::epollManager(const std::vector<int>& listenFds, const std::vector< std::vector<ServerConfig> >& serverGroups)
     : _epollFd(-1)
     , _running(true)
@@ -71,6 +224,8 @@ epollManager::epollManager(const std::vector<int>& listenFds, const std::vector<
     LOG("All server sockets added to epoll");
 }
 
+
+// Ensures all sockets, CGI pipes and sessions are released on shutdown.
 epollManager::~epollManager()
 {
     _running = false;
@@ -79,7 +234,7 @@ epollManager::~epollManager()
         it != _clientConnections.end(); ++it)
         fds.push_back(it->first);
     for (size_t i = 0; i < fds.size(); ++i)
-        closeClient(fds[i]);
+        closeClientSocket(fds[i]);
     if (_epollFd != -1)
         close(_epollFd);
     _clientConnections.clear();
@@ -92,11 +247,12 @@ epollManager::~epollManager()
     sessionStore().clear();
 }
 
-void epollManager::requestStop()
-{
-    _running = false;
-}
 
+// Signals the event loop to exit after the current iteration.
+void epollManager::requestStop() { _running = false; }
+
+
+// Closes idle clients, enforces CGI/read timeouts and expires sessions.
 void epollManager::cleanupInactiveConnections() {
     time_t now = time(NULL);
     if (now - _lastCleanup < CLEANUP_INTERVAL) return;
@@ -111,8 +267,8 @@ void epollManager::cleanupInactiveConnections() {
             if (idleTime > CONNECTION_TIMEOUT) {
                 std::map<int, std::string>::iterator next = bufIt;
                 ++next;
-                closeClient(clientFd);
-                purgeClient(clientFd);
+                closeClientSocket(clientFd);
+                removeClientState(clientFd);
                 bufIt = next;
                 closedCount++;
                 continue;
@@ -126,7 +282,6 @@ void epollManager::cleanupInactiveConnections() {
     for (std::map<int, ClientConnection>::iterator it = _clientConnections.begin(); it != _clientConnections.end(); ) {
         ClientConnection& c = it->second;
         double idle = difftime(now, c.lastActivity);
-        bool erased = false;
         if (c.cgiRunning && c.cgiStart && difftime(now, c.cgiStart) > CGI_TIMEOUT) {
             if (c.cgiPid > 0){
                 kill(c.cgiPid, SIGKILL);
@@ -141,19 +296,21 @@ void epollManager::cleanupInactiveConnections() {
             if (c.cgiOutFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiOutFd, NULL); close(c.cgiOutFd); _cgiOutToClient.erase(c.cgiOutFd); c.cgiOutFd = -1; }
             c.cgiRunning = false;
             c.keepAlive = false;
-            sendErrorResponse(c.fd, 504, "Gateway Timeout");
+            queueErrorResponse(c.fd, 504, "Gateway Timeout");
         } else if ((!c.headersParsed || c.state == READING_BODY) && idle > READ_TIMEOUT) {
             if (!c.hasResponse) {
                 c.keepAlive = false;
-                sendErrorResponse(c.fd, 408, "Request Timeout");
+                queueErrorResponse(c.fd, 408, "Request Timeout");
             }
         }
-        if (!erased) ++it;
+        ++it;
     }
     pruneExpiredSessions(now);
 }
 
-void epollManager::handleNewConnection(int listenFd)
+
+// Accepts every pending client connection on the given listening socket.
+void epollManager::acceptPendingConnections(int listenFd)
 {
     struct sockaddr_in clientAddress;
     socklen_t clientAddrLen = sizeof(clientAddress);
@@ -193,141 +350,82 @@ void epollManager::handleNewConnection(int listenFd)
     // EAGAIN acceptable when drained
 }
 
-bool epollManager::parseHeadersFor(int clientFd) {
+
+// Parses the headers currently stored for the connection and prepares body decoding.
+bool epollManager::parseClientHeaders(int clientFd) {
     ClientConnection &conn = _clientConnections[clientFd];
-    size_t pos = conn.buffer.find("\r\n\r\n");
-    if (pos == std::string::npos)
-        return false;
-    std::string headersPart = conn.buffer.substr(0, pos);
-    std::string after = conn.buffer.substr(pos + 4);
-    size_t eol = headersPart.find("\r\n");
-    if (eol == std::string::npos)
-        return false;
-    std::string start = headersPart.substr(0, eol);
-    size_t sp1 = start.find(' ');
-    size_t sp2 = (sp1 == std::string::npos) ? std::string::npos : start.find(' ', sp1 + 1);
-    if (sp1 == std::string::npos || sp2 == std::string::npos)
-        return false;
-    conn.method = start.substr(0, sp1);
-    conn.uri = start.substr(sp1 + 1, sp2 - sp1 - 1);
-    conn.version = start.substr(sp2 + 1);
 
-    size_t lineStart = eol + 2;
-    while (lineStart < headersPart.size()) {
-        size_t lineEnd = headersPart.find("\r\n", lineStart);
-        if (lineEnd == std::string::npos)
-            break;
-        std::string line = headersPart.substr(lineStart, lineEnd - lineStart);
-        size_t colon = line.find(':');
-        if (colon != std::string::npos) {
-            std::string name = line.substr(0, colon);
-            std::string value = line.substr(colon + 1);
-            while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) value.erase(0,1);
-            while (!name.empty() && (name[name.size()-1] == ' ' || name[name.size()-1] == '\t')) name.erase(name.size()-1);
-            for (size_t i=0;i<name.size();++i)
-                name[i] = std::tolower(name[i]);
-            conn.headers[name] = value;
-        }
-        lineStart = lineEnd + 2;
-    }
+    HeaderSections sections;
+    if (!extractHeaderSections(conn.buffer, sections))
+        return false;
+    if (!parseRequestLine(sections.requestLine, conn))
+        return false;
 
-    std::string te;
-    if (conn.headers.find("transfer-encoding") != conn.headers.end())
-        te = conn.headers["transfer-encoding"];
-    std::string cl;
-    if (conn.headers.find("content-length") != conn.headers.end())
-        cl = conn.headers["content-length"];
-    if (!te.empty()) {
-        std::string tel = te;
-        for (size_t i=0;i<tel.size();++i)
-            tel[i]=std::tolower(tel[i]);
-        if (tel.find("chunked") != std::string::npos) {
-            conn.bodyType = BODY_CHUNKED;
-            conn.chunkState = CHUNK_READ_SIZE;
-        }
-    }
-    if (conn.bodyType != BODY_CHUNKED) {
-        if (!cl.empty()) {
-            conn.contentLength = static_cast<size_t>(std::strtoul(cl.c_str(), NULL, 10));
-            conn.bodyType = (conn.contentLength > 0) ? BODY_FIXED : BODY_NONE;
-        }
-        else
-            conn.bodyType = BODY_NONE;
-    }
-    conn.buffer.clear();
-    if (conn.bodyType == BODY_FIXED) {
-        conn.body.append(after);
-        conn.bodyReceived = conn.body.size();
-    }
-    else if (conn.bodyType == BODY_CHUNKED)
-        conn.chunkBuffer.append(after);
+    parseHeaderBlock(sections.headerBlock, conn);
+    configureBodyStrategy(conn, sections.remainder);
 
     conn.headersParsed = true;
-    // Select vhost according to Host header, defaulting to first
-    std::map<int, std::vector<ServerConfig> >::iterator git = _serverGroups.find(conn.listenFd);
-    if (git != _serverGroups.end()) {
-        const std::vector<ServerConfig>& group = git->second;
-        if (!group.empty()) {
-            std::string hostHeader;
-            if (conn.headers.find("host") != conn.headers.end())
-                hostHeader = conn.headers["host"];
-            size_t colon = hostHeader.find(':');
-            std::string hostname = (colon == std::string::npos) ? hostHeader : hostHeader.substr(0, colon);
-            hostname = ParserUtils::trim(hostname);
-            std::string hostnameLower = hostname;
-            for (size_t i = 0; i < hostnameLower.size(); ++i)
-                hostnameLower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(hostnameLower[i])));
-
-            const ServerConfig* chosen = &group[0];
-            if (!hostnameLower.empty()) {
-                for (size_t i=0;i<group.size();++i) {
-                    const std::vector<std::string>& aliases = group[i].getServerNames();
-                    for (size_t j = 0; j < aliases.size(); ++j) {
-                        std::string aliasLower = aliases[j];
-                        for (size_t k = 0; k < aliasLower.size(); ++k)
-                            aliasLower[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(aliasLower[k])));
-                        if (aliasLower == hostnameLower) {
-                            chosen = &group[i];
-                            goto host_selected;
-                        }
-                    }
-                    if (aliases.empty()) {
-                        std::string hostLower = group[i].getHost();
-                        for (size_t k = 0; k < hostLower.size(); ++k)
-                            hostLower[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(hostLower[k])));
-                        if (!hostLower.empty() && hostLower == hostnameLower) {
-                            chosen = &group[i];
-                            goto host_selected;
-                        }
-                    }
-                }
-            }
-host_selected:
-            _serverForClientFd[conn.fd] = *chosen;
-        }
-    }
-    std::string connectionValue;
-    std::map<std::string, std::string>::iterator connIt = conn.headers.find("connection");
-    if (connIt != conn.headers.end()) connectionValue = connIt->second;
-    std::string connectionLower = connectionValue;
-    for (size_t i = 0; i < connectionLower.size(); ++i) connectionLower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(connectionLower[i])));
-    bool explicitClose = connectionLower.find("close") != std::string::npos;
-    bool explicitKeep = connectionLower.find("keep-alive") != std::string::npos;
-    std::string versionUpper = conn.version;
-    for (size_t i = 0; i < versionUpper.size(); ++i) versionUpper[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(versionUpper[i])));
-    if (!explicitClose) {
-        if (versionUpper == "HTTP/1.1") conn.keepAlive = true;
-        else if (versionUpper == "HTTP/1.0") conn.keepAlive = explicitKeep;
-        else conn.keepAlive = explicitKeep;
-    } else {
-        conn.keepAlive = false;
-    }
-
+    assignVirtualHost(clientFd);
+    applyKeepAlivePolicy(conn);
     conn.state = (conn.bodyType == BODY_NONE) ? READY : READING_BODY;
     return true;
 }
 
-bool epollManager::processFixedBody(int clientFd) {
+// Chooses the matching virtual host for the connection based on the Host header.
+void epollManager::assignVirtualHost(int clientFd) {
+    ClientConnection &conn = _clientConnections[clientFd];
+    std::map<int, std::vector<ServerConfig> >::iterator groupIt = _serverGroups.find(conn.listenFd);
+    if (groupIt == _serverGroups.end())
+        return;
+
+    const std::vector<ServerConfig>& group = groupIt->second;
+    if (group.empty())
+        return;
+
+    std::string hostHeader;
+    std::map<std::string, std::string>::const_iterator headerIt = conn.headers.find("host");
+    if (headerIt != conn.headers.end())
+        hostHeader = headerIt->second;
+
+    size_t colon = hostHeader.find(':');
+    std::string hostname = (colon == std::string::npos) ? hostHeader : hostHeader.substr(0, colon);
+    hostname = ParserUtils::trim(hostname);
+    std::string hostnameLower = hostname;
+    for (size_t i = 0; i < hostnameLower.size(); ++i)
+        hostnameLower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(hostnameLower[i])));
+
+    const ServerConfig* chosen = &group[0];
+    if (!hostnameLower.empty()) {
+        for (size_t i = 0; i < group.size(); ++i) {
+            const std::vector<std::string>& aliases = group[i].getServerNames();
+            for (size_t j = 0; j < aliases.size(); ++j) {
+                std::string aliasLower = aliases[j];
+                for (size_t k = 0; k < aliasLower.size(); ++k)
+                    aliasLower[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(aliasLower[k])));
+                if (aliasLower == hostnameLower) {
+                    chosen = &group[i];
+                    _serverForClientFd[conn.fd] = *chosen;
+                    return;
+                }
+            }
+            if (aliases.empty()) {
+                std::string hostLower = group[i].getHost();
+                for (size_t k = 0; k < hostLower.size(); ++k)
+                    hostLower[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(hostLower[k])));
+                if (!hostLower.empty() && hostLower == hostnameLower) {
+                    chosen = &group[i];
+                    _serverForClientFd[conn.fd] = *chosen;
+                    return;
+                }
+            }
+        }
+    }
+    _serverForClientFd[conn.fd] = *chosen;
+}
+
+
+// Transfers buffered data into the fixed-size request body until fully received.
+bool epollManager::consumeFixedBody(int clientFd) {
     ClientConnection &conn = _clientConnections[clientFd];
     if (conn.bodyReceived >= conn.contentLength) {
         conn.state = READY;
@@ -345,7 +443,9 @@ bool epollManager::processFixedBody(int clientFd) {
     return false;
 }
 
-bool epollManager::processChunkedBody(int clientFd) {
+
+// Consumes the chunked request body and marks completion when the last chunk arrives.
+bool epollManager::consumeChunkedBody(int clientFd) {
     ClientConnection &c = _clientConnections[clientFd];
     if (!c.buffer.empty()) {
         c.chunkBuffer.append(c.buffer);
@@ -396,7 +496,9 @@ bool epollManager::processChunkedBody(int clientFd) {
     }
 }
 
-bool epollManager::processConnectionData(int clientFd) {
+
+// Aggregates incoming data and reports when a full HTTP request is ready.
+bool epollManager::collectClientRequest(int clientFd) {
     ClientConnection &conn = _clientConnections[clientFd];
     const ServerConfig& cfg = _serverForClientFd[clientFd];
     const LocationConfig* location = findLocationConfig(conn.uri.empty() ? "/" : conn.uri, cfg);
@@ -404,36 +506,31 @@ bool epollManager::processConnectionData(int clientFd) {
 
     // Enforce max body size early, as data is being received.
     if (maxBody > 0 && (conn.body.size() + conn.buffer.size() + conn.chunkBuffer.size()) > maxBody) {
-        sendErrorResponse(clientFd, 413, "Request Entity Too Large");
+        queueErrorResponse(clientFd, 413, "Request Entity Too Large");
         return false; // Stop processing
     }
 
-    if (!conn.headersParsed)
-        parseHeadersFor(clientFd);
+    if (!conn.headersParsed && !parseClientHeaders(clientFd))
+        return false;
+
     if (conn.state == READING_BODY) {
         if (conn.bodyType == BODY_FIXED)
-            processFixedBody(clientFd);
+            consumeFixedBody(clientFd);
         else if (conn.bodyType == BODY_CHUNKED)
-            processChunkedBody(clientFd);
+            consumeChunkedBody(clientFd);
     }
     /* if (conn.cgiRunning)
         return false; */
     return (conn.state == READY);
 }
 
-void epollManager::processReadyRequest(int clientFd)
+
+// Builds the Request object for a ready client and dispatches it to the right handler.
+void epollManager::handleReadyRequest(int clientFd)
 {
     ClientConnection &conn = _clientConnections[clientFd];
     try {
-        std::string raw;
-        raw += conn.method + " " + conn.uri + " " + conn.version + "\r\n";
-        for (std::map<std::string,std::string>::const_iterator it = conn.headers.begin(); it != conn.headers.end(); ++it) {
-            if (it->first == "transfer-encoding" || it->first == "content-length") continue;
-            raw += it->first + ": " + it->second + "\r\n";
-        }
-        if (!conn.body.empty()) raw += std::string("Content-Length: ") + toString(conn.body.size()) + "\r\n";
-        raw += "\r\n";
-        raw += conn.body;
+        std::string raw = buildRawHttpRequest(conn);
         Request request(raw);
         if (request.isComplete()) {
             LOG("Request " + request.getMethod() + " " + request.getUri() + " fd=" + toString(clientFd));
@@ -442,11 +539,11 @@ void epollManager::processReadyRequest(int clientFd)
             ensureSessionFor(conn, request);
             bool wantsCgi = (location && location->isCgiRequest(conn.uri));
             if (wantsCgi) {
-                if (!startCgiFor(clientFd, request, cfg, location)){
-                    sendErrorResponse(clientFd, 502, "Bad Gateway");
+                if (!launchCgi(clientFd, request, cfg, location)){
+                    queueErrorResponse(clientFd, 502, "Bad Gateway");
                 }
             } else {
-                Response response = createResponseForRequest(request, cfg);
+                Response response = buildResponseForRequest(request, cfg);
                 if (conn.keepAlive) {
                     response.setHeader("Connection", "keep-alive");
                     response.setHeader("Keep-Alive", "timeout=5, max=100");
@@ -457,19 +554,21 @@ void epollManager::processReadyRequest(int clientFd)
                 std::string responseStr = response.getResponse();
                 std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
                 LOG("Response " + statusLine + " fd=" + toString(clientFd));
-                conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
+                conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; updateClientInterest(clientFd, true);
             }
             
         } else {
             conn.keepAlive = false;
-            sendErrorResponse(clientFd, 400, "Bad Request");
+            queueErrorResponse(clientFd, 400, "Bad Request");
         }
     } catch (...) {
         conn.keepAlive = false;
-        sendErrorResponse(clientFd, 400, "Bad Request");
+        queueErrorResponse(clientFd, 400, "Bad Request");
     }
 }
 
+
+// Finds the most specific matching location block for a given URI.
 const LocationConfig* epollManager::findLocationConfig(const std::string& uri, const ServerConfig& config) const
 {
     const std::vector<LocationConfig>& locations = config.getLocations();
@@ -484,6 +583,8 @@ const LocationConfig* epollManager::findLocationConfig(const std::string& uri, c
     return bestMatch;
 }
 
+
+// Builds the Allow header listing permitted methods for an endpoint.
 std::string epollManager::buildAllowHeader(const LocationConfig* location) const {
     std::string allow;
     if (location) {
@@ -494,6 +595,8 @@ std::string epollManager::buildAllowHeader(const LocationConfig* location) const
     return allow;
 }
 
+
+// Resolves a request URI to a filesystem path respecting location roots.
 std::string epollManager::resolveFilePath(const std::string& uri, const ServerConfig& config) const {
     const LocationConfig* location = findLocationConfig(uri, config);
     const bool hasLocation = (location != NULL);
@@ -537,6 +640,8 @@ std::string epollManager::resolveFilePath(const std::string& uri, const ServerCo
     return full;
 }
 
+
+// Resolves an error page path, checking location and server overrides.
 std::string epollManager::resolveErrorPagePath(const std::string& candidate, const ServerConfig& config) const {
     if (candidate.empty())
         return "";
@@ -573,6 +678,8 @@ std::string epollManager::resolveErrorPagePath(const std::string& candidate, con
     return "";
 }
 
+
+// Loads a custom error page from configuration or default repository.
 bool epollManager::loadErrorPage(int code, const ServerConfig* config, std::string& body, std::string& contentType) const {
     if (config) {
         std::string candidate = config->getErrorPagePath(code);
@@ -611,7 +718,10 @@ bool epollManager::loadErrorPage(int code, const ServerConfig* config, std::stri
     return false;
 }
 
-void epollManager::buildErrorResponse(Response& response, int code, const std::string& message, const ServerConfig* config) const {
+
+// Creates an HTTP error response with optional custom page content.
+void epollManager::buildErrorResponse(Response& response, int code, const std::string& message, const ServerConfig* config) const 
+{
     response.setStatus(code, message);
     response.setHeader("Server", "webserv/1.0");
     response.setHeader("Date", getCurrentDate());
@@ -627,6 +737,8 @@ void epollManager::buildErrorResponse(Response& response, int code, const std::s
     }
 }
 
+
+// Checks whether the HTTP method is permitted for the requested resource.
 bool epollManager::isMethodAllowed(const std::string& method, const std::string& uri, const ServerConfig& config) const
 {
     const LocationConfig* location = findLocationConfig(uri, config);
@@ -638,18 +750,26 @@ bool epollManager::isMethodAllowed(const std::string& method, const std::string&
     return true;
 }
 
-size_t epollManager::getEffectiveClientMax(const LocationConfig* location, const ServerConfig& config) const {
+
+// Computes the maximum allowed request body size for the current location.
+size_t epollManager::getEffectiveClientMax(const LocationConfig* location, const ServerConfig& config) const 
+{
     if (location && location->getClientMax() > 0) return location->getClientMax();
     return config.getClientMax();
 }
 
-bool epollManager::isCgiRequest(const std::string& uri, const ServerConfig& config) const {
+
+bool epollManager::isCgiRequest(const std::string& uri, const ServerConfig& config) const 
+{
     const LocationConfig* location = findLocationConfig(uri, config);
     if (!location) return false;
     return !location->getCgiPass().empty();
 }
 
-Response epollManager::handleDelete(const Request& request, const LocationConfig* location, const ServerConfig& config) {
+
+// Implements DELETE by removing the targeted resource when permitted.
+Response epollManager::handleDelete(const Request& request, const LocationConfig* location, const ServerConfig& config) 
+{
     Response response;
     const std::string uri = request.getUri();
     if (location && !location->getCgiPass().empty()) { buildErrorResponse(response, 403, "Forbidden", &config); return response; }
@@ -661,10 +781,13 @@ Response epollManager::handleDelete(const Request& request, const LocationConfig
     buildErrorResponse(response, 500, "Internal Server Error", &config); return response;
 }
 
+
 static std::string sanitizeFilename(const std::string& name) {
     std::string n; for (size_t i=0;i<name.size();++i) { char c = name[i]; if (c=='/'||c=='\\') continue; if (std::isalnum(static_cast<unsigned char>(c))||c=='.'||c=='-'||c=='_') n+=c; else n+='_'; } if (n.empty()) n = "upload.bin"; return n;
 }
 
+
+// Parses a multipart/form-data payload and persists uploaded files.
 bool epollManager::parseMultipartAndSave(const std::string& body, const std::string& boundary,
                                          const std::string& basePath, const std::string& uri,
                                          size_t& savedCount, bool& anyCreated, std::string& lastSavedPath)
@@ -689,9 +812,12 @@ bool epollManager::parseMultipartAndSave(const std::string& body, const std::str
     return savedCount > 0;
 }
 
-Response epollManager::handlePost(const Request& request, const LocationConfig* location, const ServerConfig& config) {
+
+// Handles non-CGI POST requests such as form submissions and uploads.
+Response epollManager::handlePost(const Request& request, const LocationConfig* location, const ServerConfig& config) 
+{
     Response response; const std::string uri = request.getUri();
-    // CGI requests are handled asynchronously in processReadyRequest via startCgiFor
+    // CGI requests are handled asynchronously in handleReadyRequest via launchCgi
     // This function now only covers non-CGI POST handlers (uploads, file writes, etc.)
     // Determine upload base path: upload_store if set, else resolve from URI
     std::string basePath = (location && !location->getUploadStore().empty()) ? location->getUploadStore() : resolveFilePath(uri, config);
@@ -728,92 +854,177 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
     const std::string& data = request.getBody(); ofs.write(data.c_str(), data.size()); ofs.close(); response.setStatus(existed?200:201, existed?"OK":"Created"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse(existed?"200 OK":"201 Created", existed?"File overwritten":"File created")); return response;
 }
 
-Response epollManager::createResponseForRequest(const Request& request, const ServerConfig& config) {
-    Response response;
-    if (request.getVersion() != "HTTP/1.1" && request.getVersion() != "HTTP/1.0") { buildErrorResponse(response, 505, "HTTP Version Not Supported", &config); return response; }
-    std::string method = request.getMethod(); std::string uri = request.getUri(); const LocationConfig* location = findLocationConfig(uri, config);
-    if (!isMethodAllowed(method, uri, config)) { buildErrorResponse(response, 405, "Method Not Allowed", &config); response.setHeader("Allow", buildAllowHeader(location)); return response; }
 
-    // 411 for POST without length or transfer-encoding
-    if (method == "POST") {
-        std::string cl = request.getHeader("Content-Length");
-        std::string te = request.getHeader("Transfer-Encoding");
-        if (cl.empty() && te.empty() && request.getBody().empty()) {
-            buildErrorResponse(response, 411, "Length Required", &config);
-            return response;
+// Ensures POST requests supply either a Content-Length, a Transfer-Encoding or an inline body.
+bool epollManager::validatePostLengthHeader(const Request& request, Response& response, const ServerConfig& config) const 
+{
+    std::string contentLength = request.getHeader("Content-Length");
+    std::string transferEncoding = request.getHeader("Transfer-Encoding");
+    if (contentLength.empty() && transferEncoding.empty() && request.getBody().empty()) {
+        buildErrorResponse(response, 411, "Length Required", &config);
+        return false;
+    }
+    return true;
+}
+
+// Applies the configured body size limit to POST requests.
+bool epollManager::validatePostBodySize(const Request& request, const LocationConfig* location, const ServerConfig& config, Response& response) const 
+{
+    size_t effectiveMax = getEffectiveClientMax(location, config);
+    if (effectiveMax > 0 && request.getBody().length() > effectiveMax) {
+        buildErrorResponse(response, 413, "Request Entity Too Large", &config);
+        return false;
+    }
+    return true;
+}
+
+// Produces a redirect response when the location block defines a return directive.
+bool epollManager::handleConfiguredRedirect(const LocationConfig* location, Response& response, const ServerConfig& config) const 
+{
+    if (!location || !location->hasReturn())
+        return false;
+    (void)config;
+    int code = location->getReturnCode();
+    std::string url = location->getReturnUrl();
+    response.setStatus(code, (code == 301 ? "Moved Permanently" : (code == 302 ? "Found" : "Temporary Redirect")));
+    response.setHeader("Location", url);
+    response.setHeader("Content-Type", "text/html");
+    response.setBody(createHtmlResponse(toString(code) + " Redirect", "Redirecting to <a href="" + url + "">" + url + "</a>"));
+    return true;
+}
+
+// Serves the configured index file when the client requests the root URI.
+bool epollManager::tryServeRootIndex(const std::string& uri, const LocationConfig* location, const ServerConfig& config, Response& response) const {
+    if (uri != "/" && uri != "/index.html")
+        return false;
+    std::string indexConf = (location && !location->getIndex().empty()) ? location->getIndex() : config.getIndex();
+    std::vector<std::string> indexes = ParserUtils::split(indexConf, ' ');
+    for (size_t i = 0; i < indexes.size(); ++i) {
+        std::string indexFile = ParserUtils::trim(indexes[i]);
+        if (indexFile.empty())
+            continue;
+        std::string filePath = resolveFilePath("/" + indexFile, config);
+        if (filePath.empty() || !fileExists(filePath))
+            continue;
+        response.setStatus(200, "OK");
+        response.setHeader("Content-Type", getContentType(indexFile));
+        response.setBody(readFileContent(filePath));
+        return true;
+    }
+    buildErrorResponse(response, 404, "Not Found", &config);
+    return true;
+}
+
+// Serves files or directory listings for non-root URIs.
+bool epollManager::tryServeResourceFromFilesystem(const std::string& uri, const LocationConfig* location, const ServerConfig& config, Response& response) const {
+    std::string filePath = resolveFilePath(uri, config);
+    if (filePath.empty() || !fileExists(filePath)) {
+        buildErrorResponse(response, 404, "Not Found", &config);
+        return true;
+    }
+    if (isDirectory(filePath)) {
+        if (location && location->getAutoindex()) {
+            response.setStatus(200, "OK");
+            response.setHeader("Content-Type", "text/html");
+            response.setBody(generateDirectoryListing(filePath, uri));
+            return true;
         }
-    }
-
-    // Redirection (return 3xx) at location level
-    if (location && location->hasReturn()) {
-        int code = location->getReturnCode();
-        std::string url = location->getReturnUrl();
-        response.setStatus(code, (code==301?"Moved Permanently":(code==302?"Found":"Temporary Redirect")));
-        response.setHeader("Location", url);
-        response.setHeader("Content-Type", "text/html");
-        response.setBody(createHtmlResponse(toString(code) + " Redirect", "Redirecting to <a href=\"" + url + "\">" + url + "</a>"));
-        // Apply HEAD stripping below
-        goto finalize;
-    }
-    if (method == "DELETE") { return handleDelete(request, location, config); }
-    if (method == "POST" && (!location || !location->isCgiRequest(uri))) { return handlePost(request, location, config); }
-    if (method == "POST") {
-        // Enforce effective body max at routing time too
-        size_t effectiveMax = getEffectiveClientMax(location, config);
-        if (effectiveMax > 0 && request.getBody().length() > effectiveMax) {
-            buildErrorResponse(response, 413, "Request Entity Too Large", &config);
-            return response;
-        }
-    }
-
-    if (uri == "/" || uri == "/index.html") {
-        // Prefer location index if available for '/'
         std::string indexConf = (location && !location->getIndex().empty()) ? location->getIndex() : config.getIndex();
-        std::vector<std::string> indexList = ParserUtils::split(indexConf, ' '); bool indexFound = false;
-        for (size_t i = 0; i < indexList.size() && !indexFound; ++i) { std::string indexFile = ParserUtils::trim(indexList[i]); if (!indexFile.empty()) { std::string filePath = resolveFilePath("/" + indexFile, config); if (!filePath.empty() && fileExists(filePath)) { response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(indexFile)); response.setBody(readFileContent(filePath)); indexFound = true; } } }
-        if (!indexFound) {
-            buildErrorResponse(response, 404, "Not Found", &config);
-            goto finalize;
+        std::vector<std::string> indexList = ParserUtils::split(indexConf, ' ');
+        for (size_t i = 0; i < indexList.size(); ++i) {
+            std::string indexFile = ParserUtils::trim(indexList[i]);
+            if (indexFile.empty())
+                continue;
+            std::string indexFilePath = filePath + "/" + indexFile;
+            if (!fileExists(indexFilePath))
+                continue;
+            response.setStatus(200, "OK");
+            response.setHeader("Content-Type", getContentType(indexFile));
+            response.setBody(readFileContent(indexFilePath));
+            return true;
         }
-    } else if (location && location->isCgiRequest(uri)) {
-        // CGI responses are produced asynchronously via startCgiFor; this path should not be reached
-        buildErrorResponse(response, 500, "Internal Server Error", &config);
-    } else {
-        std::string filePath = resolveFilePath(uri, config);
-        if (filePath.empty() || !fileExists(filePath)) {
-            buildErrorResponse(response, 404, "Not Found", &config);
-            return response;
-        }
-
-        if (isDirectory(filePath)) {
-            if (location && location->getAutoindex()) {
-                response.setStatus(200, "OK"); response.setHeader("Content-Type","text/html"); response.setBody(generateDirectoryListing(filePath, uri));
-            } else {
-                // Prefer location index if defined, else server index
-                std::string indexConf = (location && !location->getIndex().empty()) ? location->getIndex() : config.getIndex();
-                std::vector<std::string> indexList = ParserUtils::split(indexConf, ' '); bool indexFound = false;
-                for (size_t i = 0; i < indexList.size() && !indexFound; ++i) { std::string indexFile = ParserUtils::trim(indexList[i]); if (!indexFile.empty()) { std::string indexFilePath = filePath + "/" + indexFile; if (fileExists(indexFilePath)) { response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(indexFile)); response.setBody(readFileContent(indexFilePath)); indexFound = true; } } }
-                if (!indexFound) {
-                    buildErrorResponse(response, 404, "Not Found", &config);
-                }
-            }
-        } else { // It's a file
-            response.setStatus(200, "OK"); response.setHeader("Content-Type", getContentType(uri)); response.setBody(readFileContent(filePath));
-        }
+        buildErrorResponse(response, 404, "Not Found", &config);
+        return true;
     }
-finalize:
-    // Common headers
-    response.setHeader("Server", "webserv/1.0"); response.setHeader("Date", getCurrentDate());
-    // HEAD: same headers as GET, no body
+    response.setStatus(200, "OK");
+    response.setHeader("Content-Type", getContentType(uri));
+    response.setBody(readFileContent(filePath));
+    return true;
+}
+
+// Adds the standard headers expected on every locally generated response and trims HEAD bodies.
+void epollManager::addStandardHeaders(Response& response, const std::string& method) const {
+    response.setHeader("Server", "webserv/1.0");
+    response.setHeader("Date", getCurrentDate());
     if (method == "HEAD") {
         size_t len = response.getBodyLength();
         response.setHeader("Content-Length", toString(len));
         response.setBody("");
     }
+}
+
+
+// Routes the request to the correct handler and builds a complete HTTP response.
+Response epollManager::buildResponseForRequest(const Request& request, const ServerConfig& config) {
+    Response response;
+    if (request.getVersion() != "HTTP/1.1" && request.getVersion() != "HTTP/1.0") {
+        buildErrorResponse(response, 505, "HTTP Version Not Supported", &config);
+        return response;
+    }
+
+    const std::string method = request.getMethod();
+    const std::string uri = request.getUri();
+    const LocationConfig* location = findLocationConfig(uri, config);
+
+    if (!isMethodAllowed(method, uri, config)) {
+        buildErrorResponse(response, 405, "Method Not Allowed", &config);
+        response.setHeader("Allow", buildAllowHeader(location));
+        return response;
+    }
+
+    if (method == "POST" && !validatePostLengthHeader(request, response, config))
+        return response;
+
+    if (handleConfiguredRedirect(location, response, config)) {
+        addStandardHeaders(response, method);
+        return response;
+    }
+
+    if (method == "DELETE")
+        return handleDelete(request, location, config);
+
+    if (method == "POST" && (!location || !location->isCgiRequest(uri))) {
+        Response postResponse = handlePost(request, location, config);
+        return postResponse;
+    }
+
+    if (method == "POST" && !validatePostBodySize(request, location, config, response))
+        return response;
+
+    if (tryServeRootIndex(uri, location, config, response)) {
+        addStandardHeaders(response, method);
+        return response;
+    }
+
+    if (location && location->isCgiRequest(uri)) {
+        buildErrorResponse(response, 500, "Internal Server Error", &config);
+        addStandardHeaders(response, method);
+        return response;
+    }
+
+    if (tryServeResourceFromFilesystem(uri, location, config, response)) {
+        addStandardHeaders(response, method);
+        return response;
+    }
+
+    buildErrorResponse(response, 404, "Not Found", &config);
+    addStandardHeaders(response, method);
     return response;
 }
 
-void epollManager::handleClientRead(int clientFd, uint32_t events)
+
+// Reads available data from the client socket and advances request parsing.
+void epollManager::readClientData(int clientFd, uint32_t events)
 {
     (void)events;
     if (_clientConnections.find(clientFd) == _clientConnections.end()) {
@@ -822,14 +1033,14 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
         conn.lastActivity = time(NULL);
         _clientConnections[clientFd] = conn;
         if (_clientConnections.size() > MAX_CLIENTS) {
-            sendErrorResponse(clientFd, 503, "Service Unavailable");
+            queueErrorResponse(clientFd, 503, "Service Unavailable");
             return;
         }
     }
     ClientConnection &conn = _clientConnections[clientFd];
    if (_activeCgiCount > MAX_CGI_PROCESS) {
         conn.keepAlive = false;
-        sendErrorResponse(clientFd, 503, "Too many CGI requests");
+        queueErrorResponse(clientFd, 503, "Too many CGI requests");
         return;
     }
     if (conn.cgiRunning || conn.cgiPid > 0) {
@@ -843,17 +1054,19 @@ void epollManager::handleClientRead(int clientFd, uint32_t events)
         conn.buffer.append(buffer, bytesRead);
         if (conn.buffer.size() + conn.body.size() > MAX_REQUEST_SIZE) {
             conn.keepAlive = false;
-            sendErrorResponse(clientFd, 413, "Request Entity Too Large"); return; }
-        if (!processConnectionData(clientFd)) { return; }
-        processReadyRequest(clientFd);
+            queueErrorResponse(clientFd, 413, "Request Entity Too Large"); return; }
+        if (!collectClientRequest(clientFd)) { return; }
+        handleReadyRequest(clientFd);
         return;
     }
     conn.isReading = false;
-    closeClient(clientFd);
-    purgeClient(clientFd);
+    closeClientSocket(clientFd);
+    removeClientState(clientFd);
 }
 
-void epollManager::handleClientWrite(int clientFd, uint32_t events)
+
+// Flushes the pending response buffer to the client socket respecting keep-alive.
+void epollManager::flushClientBuffer(int clientFd, uint32_t events)
 {
     (void)events;
     std::map<int, ClientConnection>::iterator it = _clientConnections.find(clientFd);
@@ -865,13 +1078,13 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
     size_t remaining = conn.outBuffer.size() - conn.outOffset;
     if (remaining == 0) 
     {
-        armWriteEvent(clientFd, false);
+        updateClientInterest(clientFd, false);
         if (conn.keepAlive) {
-            resetConnectionState(conn);
+            resetClientState(conn);
             conn.lastActivity = time(NULL);
         } else {
-            closeClient(clientFd);
-            purgeClient(clientFd);
+            closeClientSocket(clientFd);
+            removeClientState(clientFd);
         }
         return;
     }
@@ -885,25 +1098,27 @@ void epollManager::handleClientWrite(int clientFd, uint32_t events)
         conn.outOffset += static_cast<size_t>(n);
         if (conn.outOffset >= conn.outBuffer.size()) {
             LOG("Response sent to client " + toString(clientFd));
-            armWriteEvent(clientFd, false); // cut the writing
+            updateClientInterest(clientFd, false); // cut the writing
             if (conn.keepAlive) {
-                resetConnectionState(conn);
+            resetClientState(conn);
                 conn.lastActivity = time(NULL);
             } else {
-                closeClient(clientFd);
-                purgeClient(clientFd);
+                closeClientSocket(clientFd);
+                removeClientState(clientFd);
             }
         }
         return;
     }
 
     LOG("send() failed or connection closed for client " + toString(clientFd) + ", closing socket");
-    armWriteEvent(clientFd, false);
-    closeClient(clientFd);
-    purgeClient(clientFd);
+    updateClientInterest(clientFd, false);
+    closeClientSocket(clientFd);
+    removeClientState(clientFd);
 }
 
-void epollManager::sendErrorResponse(int clientFd, int code, const std::string& message) 
+
+// Schedules an error response to be written back to the client.
+void epollManager::queueErrorResponse(int clientFd, int code, const std::string& message) 
 {
     ClientConnection &conn = _clientConnections[clientFd];
     conn.keepAlive = false;
@@ -920,9 +1135,11 @@ void epollManager::sendErrorResponse(int clientFd, int code, const std::string& 
     std::string responseStr = response.getResponse();
     std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
     LOG("Response ready: " + statusLine + " (" + toString(responseStr.size()) + " bytes)");
-    conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; armWriteEvent(clientFd, true);
+    conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; updateClientInterest(clientFd, true);
 }
 
+
+// Reaps terminated CGI children without blocking the main loop.
 void epollManager::reapZombies()
 {
     int status;
@@ -956,6 +1173,8 @@ void epollManager::reapZombies()
     }
 }
 
+
+// Main epoll loop that dispatches events and maintains the server state.
 void epollManager::run()
 {
     struct epoll_event events[MAX_EVENTS];
@@ -983,16 +1202,16 @@ void epollManager::run()
         {
             int fd = events[i].data.fd;
             if (_listenSockets.find(fd) != _listenSockets.end())
-                handleNewConnection(fd);
+                acceptPendingConnections(fd);
             else if (_cgiOutToClient.find(fd) != _cgiOutToClient.end())
-                handleCgiOutEvent(fd, events[i].events);
+                drainCgiOutput(fd, events[i].events);
             else if (_cgiInToClient.find(fd) != _cgiInToClient.end())
-                handleCgiInEvent(fd, events[i].events);
+                feedCgiInput(fd, events[i].events);
             else {
                 if (events[i].events & EPOLLIN)
-                    handleClientRead(fd, events[i].events);
+                    readClientData(fd, events[i].events);
                 if (events[i].events & EPOLLOUT)
-                    handleClientWrite(fd, events[i].events);
+                    flushClientBuffer(fd, events[i].events);
             }
         }
         reapZombies();
@@ -1000,103 +1219,34 @@ void epollManager::run()
     INFO("Boucle epoll arretee proprement");
 }
 
-void epollManager::armWriteEvent(int clientFd, bool enable)
+
+// Updates epoll interest for a client socket, optionally enabling EPOLLOUT.
+void epollManager::updateClientInterest(int clientFd, bool enable)
 {
     struct epoll_event ev; 
     ev.data.fd = clientFd; 
     ev.events = EPOLLIN;
-    /* if (_clientConnections.find(clientFd) == _clientConnections.end()) {
-        return;
-    } */
     if (enable)
         ev.events |= EPOLLOUT;
     if (epoll_ctl(_epollFd, EPOLL_CTL_MOD, clientFd, &ev) == -1)
         ERROR_SYS("epoll_ctl mod client");
 }
 
-/* void epollManager::handleCgiInEvent(int pipeFd, uint32_t events)
-{
-    (void)events;
-    int clientFd = _cgiInToClient[pipeFd];
-    ClientConnection &conn = _clientConnections[clientFd];
-    if (conn.body.empty())
-    {
-        epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
-        close(pipeFd); _cgiInToClient.erase(pipeFd);
-        conn.cgiInFd = -1;
-        return;
-    }
-    size_t remaining = conn.body.size() - conn.cgiInOffset;
-    if (remaining == 0)
-    {
-        epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
-        close(pipeFd); _cgiInToClient.erase(pipeFd);
-        conn.cgiInFd = -1;
-        return;
-    }
-    size_t toWrite = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining;
-    ssize_t w = write(pipeFd, conn.body.data() + conn.cgiInOffset, toWrite);
 
-    if (w > 0) 
-    {
-        conn.cgiInOffset += static_cast<size_t>(w);
-        conn.lastActivity = time(NULL);
-        if (conn.cgiInOffset >= conn.body.size()) {
-            epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
-            close(pipeFd);
-            _cgiInToClient.erase(pipeFd);
-            conn.cgiInFd = -1;
-        }
-        return;
-    }
-    if (w == -1) { 
-        int err = errno;
-        // Pipe temporarily full, wait for next EPOLLOUT // Do nothing — we stay registered for EPOLLOUT and retry later.
-        if (err == EAGAIN || err == EWOULDBLOCK)
-            return;
-        if (err == EINTR) //  caller can retry later (we don't kill CGI)
-            return; // Other errors are fatal
-    }
-    LOG("write() vers le CGI échoué, fermeture de la connexion client " + toString(clientFd));
-    if (conn.cgiPid > 0) 
-    {
-        kill(conn.cgiPid, SIGKILL);
-        conn.cgiPid = -1;
-    }
-
-    if (conn.cgiOutFd != -1) 
-    {
-        epoll_ctl(_epollFd, EPOLL_CTL_DEL, conn.cgiOutFd, NULL);
-        close(conn.cgiOutFd);
-        _cgiOutToClient.erase(conn.cgiOutFd);
-        conn.cgiOutFd = -1;
-    }
-
-    epoll_ctl(_epollFd, EPOLL_CTL_DEL, pipeFd, NULL);
-    close(pipeFd);
-    _cgiInToClient.erase(pipeFd);
-    conn.cgiInFd = -1;
-    conn.cgiRunning = false;
-    sendErrorResponse(clientFd, 500, "Internal Server Error");
-} */
-
-
-// Extrait : Remplacer/mettre à jour la logique d'écriture vers le pipe stdin du CGI
-// (fonction handleCgiInEvent ou équivalent dans epollManager.cpp)
-
-void epollManager::purgeClient(int clientFd)
+// Removes all bookkeeping for a client after the socket is closed.
+void epollManager::removeClientState(int clientFd)
 {
     _clientBuffers.erase(clientFd);
     _clientConnections.erase(clientFd);
     _serverForClientFd.erase(clientFd);
 }
 
-void epollManager::closeClient(int clientFd)
+
+// Closes the client socket and tears down any associated CGI resources.
+void epollManager::closeClientSocket(int clientFd)
 {
-    if (_clientConnections.find(clientFd) == _clientConnections.end()){
-        //std::cout << "BONJOURRRRRRRRR" << std::endl;
-        return;
-    }
+    if (_clientConnections.find(clientFd) == _clientConnections.end()) { return; }
+
     std::map<int, ClientConnection>::iterator it = _clientConnections.find(clientFd);
     if (it != _clientConnections.end()) {
         ClientConnection& c = it->second;

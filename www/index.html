@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Webserv</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="/assets/theme.css" />
     <script>
       function getSessionId() {
         const cookies = document.cookie.split(";");
@@ -105,21 +105,27 @@
   </head>
 
   <body>
-    <div class="container">
-      <h1>Welcome, new adventurer!</h1>
+    <main class="card card--medium">
+      <div class="card-content stack">
+        <div class="pill">Session profile</div>
+        <h1 class="hero-title hero-title--centered">Welcome, new adventurer!</h1>
+        <p class="subtitle centered">
+          Ce profil est alimenté par le cookie <code>session_id</code>. Votre identité et photo sont récupérées à chaque requête.
+        </p>
 
-      <div class="profile-picture-wrapper">
-        <div id="profile-photo"></div>
-      </div>
+        <div class="profile-picture-wrapper">
+          <div id="profile-photo"></div>
+        </div>
 
-      <div class="button-container">
-        <a href="editmyinfo.html" class="button">Edit my info</a>
-        <a href="/cgi-bin/whoami.py" class="button">Who am I?</a>
-        <a href="/cgi-bin/clock.sh" class="button">What time is it?</a>
-        <button class="button" onclick="deleteUserInfo()">
-          Delete My Information
-        </button>
+        <div class="actions actions--center">
+          <a href="editmyinfo.html" class="btn">Edit my info</a>
+          <a href="/cgi-bin/whoami.py" class="btn">Who am I?</a>
+          <a href="/cgi-bin/clock.sh" class="btn">What time is it?</a>
+          <button class="btn" onclick="deleteUserInfo()">
+            Delete My Information
+          </button>
+        </div>
       </div>
-    </div>
+    </main>
   </body>
 </html>

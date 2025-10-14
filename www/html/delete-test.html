@@ -1,24 +1,38 @@
-<!doctype html>
-<meta charset="utf-8">
-<title>Test DELETE</title>
-<style>
-  body{font-family:system-ui,Arial,sans-serif;margin:2rem;line-height:1.5}
-  input,button{font-size:1rem}
-  pre{background:#f6f8fa;padding:1rem;border-radius:6px;overflow:auto}
-</style>
-<h1>Test DELETE</h1>
-<p>Fichier à supprimer sous <code>/uploads/</code>:</p>
-<input id="fname" value="todel.txt" aria-label="Nom de fichier">
-<button id="delBtn" type="button">DELETE /uploads/<span id="show"></span></button>
-<pre id="out"></pre>
-<p>
-  <a id="fileLink" href="#" target="_blank">Ouvrir le fichier (GET)</a>
-  • <button id="checkBtn" type="button">Vérifier existence (GET)</button>
-  • <button id="mkBtn" type="button">Créer fichier de test</button>
-  <small>(créer côté serveur via POST n'est pas encore branché ici)</small>
-  <br><small>Créez plutôt le fichier via terminal: <code>echo "hello" &gt; www/html/uploads/todel.txt</code></small>
-  </p>
-<script>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test DELETE</title>
+  <link rel="stylesheet" href="/assets/theme.css">
+</head>
+<body>
+  <main class="card card--medium">
+    <div class="card-content">
+      <div class="pill">HTTP DELETE sandbox</div>
+      <h1 class="hero-title"><span>🗑️</span> Test DELETE sur /uploads/</h1>
+      <p class="subtitle">Déclenchez des requêtes DELETE côté client afin de vérifier la bonne gestion des suppressions dans le serveur.</p>
+
+      <section class="stack">
+        <label for="fname"><strong>Fichier à manipuler</strong> (relatif à <code>/uploads/</code>)</label>
+        <input id="fname" type="text" value="todel.txt" aria-label="Nom de fichier">
+        <div class="actions">
+          <button id="delBtn" type="button" class="btn">Supprimer via DELETE</button>
+          <button id="checkBtn" type="button" class="btn">Vérifier via GET</button>
+          <button id="mkBtn" type="button" class="btn">Guide création fichier</button>
+          <a id="fileLink" class="btn" href="#" target="_blank">Ouvrir le fichier</a>
+        </div>
+        <p class="muted">Requête ciblée : <code id="show">/uploads/todel.txt</code></p>
+        <pre id="out">Actions et réponses serveur s’afficheront ici.</pre>
+      </section>
+
+      <p class="muted">
+        Astuce : créez un fichier de test depuis votre terminal&nbsp;:
+        <code>echo "hello" &gt; www/html/uploads/todel.txt</code> puis utilisez les boutons ci-dessus pour tester GET/DELETE.
+      </p>
+    </div>
+  </main>
+  <script>
 const fname = document.getElementById('fname');
 const show = document.getElementById('show');
 const out = document.getElementById('out');
@@ -31,7 +45,7 @@ function uri() {
   return '/uploads/' + fname.value.replace(/^\/+/, '');
 }
 function syncUI(){
-  show.textContent = fname.value;
+  show.textContent = uri();
   link.href = uri();
 }
 fname.addEventListener('input', syncUI);
@@ -67,3 +81,5 @@ mkBtn.addEventListener('click', () => {
     + 'puis testez GET/DELETE ci-dessus.';
 });
 </script>
+</body>
+</html>

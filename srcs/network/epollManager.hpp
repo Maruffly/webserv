@@ -31,17 +31,17 @@ class epollManager
         // CGI count
         size_t _activeCgiCount;
 
-        void handleNewConnection(int listenFd);
-        void handleClientRead(int clientFd, uint32_t events);
-        void handleClientWrite(int clientFd, uint32_t events);
-        void handleCgiOutEvent(int pipeFd, uint32_t events);
-        void handleCgiInEvent(int pipeFd, uint32_t events);
-        void closeClient(int clientFd);
-        void purgeClient(int clientFd);
-        void sendErrorResponse(int clientFd, int code, const std::string& message);
+        void acceptPendingConnections(int listenFd);
+        void readClientData(int clientFd, uint32_t events);
+        void flushClientBuffer(int clientFd, uint32_t events);
+        void drainCgiOutput(int pipeFd, uint32_t events);
+        void feedCgiInput(int pipeFd, uint32_t events);
+        void closeClientSocket(int clientFd);
+        void removeClientState(int clientFd);
+        void queueErrorResponse(int clientFd, int code, const std::string& message);
 
         // Per-request helpers using selected config
-        Response createResponseForRequest(const Request& request, const ServerConfig& config);
+        Response buildResponseForRequest(const Request& request, const ServerConfig& config);
         bool isCgiRequest(const std::string& uri, const ServerConfig& config) const;
         bool isMethodAllowed(const std::string& method, const std::string& uri, const ServerConfig& config) const;
         std::string resolveFilePath(const std::string& uri, const ServerConfig& config) const;
@@ -50,21 +50,28 @@ class epollManager
         std::string buildAllowHeader(const LocationConfig* location) const;
         const LocationConfig* findLocationConfig(const std::string& uri, const ServerConfig& config) const;
         size_t getEffectiveClientMax(const LocationConfig* location, const ServerConfig& config) const;
-        bool processConnectionData(int clientFd);
-        bool parseHeadersFor(int clientFd);
-        bool processFixedBody(int clientFd);
-        bool processChunkedBody(int clientFd);
+        void assignVirtualHost(int clientFd);
+        bool validatePostLengthHeader(const Request& request, Response& response, const ServerConfig& config) const;
+        bool validatePostBodySize(const Request& request, const LocationConfig* location, const ServerConfig& config, Response& response) const;
+        bool handleConfiguredRedirect(const LocationConfig* location, Response& response, const ServerConfig& config) const;
+        bool tryServeRootIndex(const std::string& uri, const LocationConfig* location, const ServerConfig& config, Response& response) const;
+        bool tryServeResourceFromFilesystem(const std::string& uri, const LocationConfig* location, const ServerConfig& config, Response& response) const;
+        void addStandardHeaders(Response& response, const std::string& method) const;
+        bool collectClientRequest(int clientFd);
+        bool parseClientHeaders(int clientFd);
+        bool consumeFixedBody(int clientFd);
+        bool consumeChunkedBody(int clientFd);
         bool parseMultipartAndSave(const std::string& body, const std::string& boundary,
                                    const std::string& basePath, const std::string& uri,
                                    size_t& savedCount, bool& anyCreated, std::string& lastSavedPath);
-        void processReadyRequest(int clientFd);
+        void handleReadyRequest(int clientFd);
         std::string resolveErrorPagePath(const std::string& candidate, const ServerConfig& config) const;
         bool loadErrorPage(int code, const ServerConfig* config, std::string& body, std::string& contentType) const;
         void buildErrorResponse(Response& response, int code, const std::string& message, const ServerConfig* config) const;
 
-        void armWriteEvent(int clientFd, bool enable);
-        bool startCgiFor(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location);
-        void finalizeCgiFor(int clientFd);
+        void updateClientInterest(int clientFd, bool enableWrite);
+        bool launchCgi(int clientFd, const Request& request, const ServerConfig& config, const LocationConfig* location);
+        void finalizeCgiResponse(int clientFd);
 
     public:
         void reapZombies();

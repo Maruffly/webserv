@@ -4,102 +4,58 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Uploads Directory - Webserv</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 40px;
-            background-color: #f5f5f5;
-            line-height: 1.6;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #2c3e50;
-            border-bottom: 3px solid #e67e22;
-            padding-bottom: 10px;
-        }
-        .back-link {
-            display: inline-block;
-            margin-top: 20px;
-            padding: 8px 15px;
-            background: #3498db;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-        }
-        .back-link:hover {
-            background: #2980b9;
-        }
-    </style>
+    <link rel="stylesheet" href="/assets/theme.css">
 </head>
 <body>
-    <div class="container">
-        <h1>📁 Uploads Directory</h1>
-        <h2>Upload a File</h2>
+    <main class="card card--medium">
+        <div class="card-content">
+            <div class="pill">Multipart uploads</div>
+            <h1 class="hero-title"><span>📁</span> Uploads Directory</h1>
+            <p class="subtitle">POST files directly to <code>/uploads/</code>. This location is tuned for larger payloads and demonstrates the upload_store directive.</p>
 
-        <!-- Formulaire simple -->
-        <form id="uploadForm" action="/uploads/" method="POST" enctype="multipart/form-data">
-            <input type="file" name="file" required>
-            <button type="submit">Upload</button>
-        </form>
+            <div class="grid">
+                <section>
+                    <h2>Try it now</h2>
+                    <form id="uploadForm" action="/uploads/" method="post" enctype="multipart/form-data">
+                        <input type="file" name="file" required>
+                        <button type="submit" class="btn">Upload file</button>
+                    </form>
+                    <pre id="uploadResult">Select a file and submit to see the raw server response.</pre>
+                </section>
 
-        <div id="uploadResult" style="margin-top:20px; color: green; font-weight: bold;"></div>
+                <section>
+                    <h2>Location details</h2>
+                    <ul>
+                        <li>📂 <strong>Filesystem target:</strong> ./www/html/uploads/</li>
+                        <li>📏 <strong>Body size limit:</strong> 100&nbsp;MB</li>
+                        <li>📝 <strong>Allowed methods:</strong> GET, POST, DELETE</li>
+                        <li>🧰 <strong>Use cases:</strong> upload demonstrations, DELETE testing</li>
+                    </ul>
+                    <p class="muted">Need to inspect a file? Visit <a href="/uploads/" class="link-button">the uploads listing</a> if autoindex is enabled in your configuration.</p>
+                </section>
+            </div>
 
-        <script>
-        document.getElementById("uploadForm").addEventListener("submit", function(event) {
-            event.preventDefault();
+            <div class="actions">
+                <a href="/" class="btn">← Back to Home</a>
+            </div>
+        </div>
+    </main>
+    <script>
+    const form = document.getElementById('uploadForm');
+    const result = document.getElementById('uploadResult');
 
-            const form = event.target;
-            const formData = new FormData(form);
-
-            fetch(form.action, {
-                method: "POST",
-                body: formData
-            })
-            .then(response => response.text().then(text => ({ status: response.status, body: text })))
-            .then(data => {
-                document.getElementById("uploadResult").innerHTML =
-                    `Response ${data.status}:<br><pre>${data.body}</pre>`;
-            })
-            .catch(err => {
-                document.getElementById("uploadResult").innerHTML = "❌ Upload failed: " + err;
-            });
-        });
-        </script>
-
-        <p>This location is configured to handle larger file uploads up to 20MB, compared to the default 10MB limit for other locations.</p>
-
-        <h3>Upload a file (POST multipart/form-data)</h3>
-        <form id="uploadForm" action="/uploads/" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" required>
-            <button type="submit">Upload</button>
-        </form>
-        <pre id="result" style="background:#f6f8fa;padding:10px;border-radius:6px;overflow:auto;margin-top:10px"></pre>
-        <script>
-        const form = document.getElementById('uploadForm');
-        const result = document.getElementById('result');
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            result.textContent = 'Uploading...';
-            const data = new FormData(form);
-            try {
-                const r = await fetch('/uploads/', { method: 'POST', body: data });
-                const text = await r.text();
-                result.textContent = 'Status: ' + r.status + ' ' + (r.statusText||'') + '\n' + text;
-            } catch (err) {
-                result.textContent = 'Error: ' + err;
-            }
-        });
-        </script>
-        
-        <a href="/" class="back-link">← Back to Home</a>
-    </div>
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        result.textContent = 'Uploading...';
+        const data = new FormData(form);
+        try {
+            const response = await fetch(form.action, { method: 'POST', body: data });
+            const text = await response.text();
+            result.textContent = 'Status: ' + response.status + ' ' + (response.statusText || '') + '\\n' + text;
+        } catch (error) {
+            result.textContent = '❌ Upload failed: ' + error;
+        }
+    });
+    </script>
 </body>
 </html>
