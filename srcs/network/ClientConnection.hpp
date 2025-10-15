@@ -1,4 +1,4 @@
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 
 class ServerConfig; // forward declaration
 

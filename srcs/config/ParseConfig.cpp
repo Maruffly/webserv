@@ -1,4 +1,4 @@
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "ParseConfig.hpp"
 #include "LocationConfig.hpp"
 #include "../utils/ParserUtils.hpp"

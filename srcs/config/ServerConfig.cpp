@@ -1,5 +1,5 @@
 #include "ServerConfig.hpp"
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "ParseConfigException.hpp"
 #include "../utils/ValidationUtils.hpp"
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 
 class	Response
 {
@@ -24,27 +24,3 @@ class	Response
 		std::string	getBody() const;
 		std::string	getResponse() const;
 };
-
-/* struct ResponseBuilder {
-    static Response createError(int code, const std::string& message) {
-        Response response;
-        response.setStatus(code, getStatusText(code));
-        response.setHeader("Content-Type", "text/html");
-        response.setHeader("Connection", "close");
-        response.setHeader("Server", "webserv/1.0");
-        response.setHeader("Date", getCurrentDate());
-        response.setBody(createHtmlResponse(toString(code) + " " + getStatusText(code), message));
-        return response;
-    }
-    
-    static Response createSuccess(const std::string& content, const std::string& contentType = "text/html") {
-        Response response;
-        response.setStatus(200, "OK");
-        response.setHeader("Content-Type", contentType);
-        response.setHeader("Connection", "close");
-        response.setHeader("Server", "webserv/1.0");
-        response.setHeader("Date", getCurrentDate());
-        response.setBody(content);
-        return response;
-    }
-}; */

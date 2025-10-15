@@ -1,4 +1,4 @@
-#include "../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "network/Server.hpp"
 #include "config/ParseConfig.hpp"
 #include "network/epollManager.hpp"

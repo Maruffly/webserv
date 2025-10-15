@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "../http/Request.hpp"
 
 struct SessionData {

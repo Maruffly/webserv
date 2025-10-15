@@ -1,7 +1,15 @@
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "Utils.hpp"
 
 
+
+char* ft_strdup(const std::string& value)
+{
+    size_t length = value.size();
+    char* duplicate = new char[length + 1];
+    std::memcpy(duplicate, value.c_str(), length + 1);
+    return duplicate;
+}
 
 std::string getCurrentDate() 
 {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 
 class ParseConfigException : public std::runtime_error {
 private:

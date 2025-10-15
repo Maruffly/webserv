@@ -1,4 +1,4 @@
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "ParserUtils.hpp"
 
 // Erase \t\n\r at the start or end of a str

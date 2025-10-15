@@ -1,6 +1,7 @@
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "epollManager.hpp"
 #include "Cookie.hpp"
+#include "../utils/Utils.hpp"
 
  std::vector<char*> epollManager::buildEnv(std::string &scriptPath, const Request &request, 
     const ServerConfig &config, const LocationConfig* location, ClientConnection &conn){
@@ -35,7 +36,7 @@
 
         std::vector<char*> envp;
         for (size_t i=0;i<envStore.size();++i)
-			envp.push_back(strdup(envStore[i].c_str()));
+			envp.push_back(ft_strdup(envStore[i]));
         envp.push_back(NULL);
         return envp;
 }
@@ -70,11 +71,11 @@ void epollManager::execChild(std::string &scriptPath, const Request &request,
 		}
         else interpreter = it->second;
         if (!interpreter.empty()) {
-			args.push_back(strdup(interpreter.c_str()));
-			args.push_back(strdup(scriptPath.c_str()));
+			args.push_back(ft_strdup(interpreter));
+			args.push_back(ft_strdup(scriptPath));
         }
         else 
-			args.push_back(strdup(scriptPath.c_str()));
+			args.push_back(ft_strdup(scriptPath));
         args.push_back(NULL);
     if (!interpreter.empty())
         execve(interpreter.c_str(), args.data(), envp.data());

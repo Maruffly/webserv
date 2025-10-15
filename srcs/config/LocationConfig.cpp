@@ -1,9 +1,9 @@
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "LocationConfig.hpp"
 #include "../utils/Utils.hpp"
 
 
-// Note: respecter l'ordre de déclaration dans le header pour éviter -Wreorder (avec -Werror)
+// respect the declaration order in the header to avoid -Wreorder (with -Werror)
 LocationConfig::LocationConfig()
     : _clientMax(0)
     , _autoindex(false)

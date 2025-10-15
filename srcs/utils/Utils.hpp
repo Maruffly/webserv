@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "../config/LocationConfig.hpp"
 
 
@@ -23,3 +23,4 @@ std::string toLowerCase(const std::string &str);
 bool		ensureDirectoryExists(const std::string& path, bool create);
 std::string dirnameOf(const std::string& path);
 void safeClose(int pipefd[2]);
+char* ft_strdup(const std::string& value);

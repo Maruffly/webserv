@@ -1,4 +1,4 @@
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "Server.hpp"
 
 // Initializes the listening socket according to the provided configuration.

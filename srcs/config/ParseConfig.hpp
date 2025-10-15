@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../include/Webserv.hpp"
+#include "Webserv.hpp"
 #include "ServerConfig.hpp"
 #include "LocationConfig.hpp"
 #include "../utils/ValidationUtils.hpp"
