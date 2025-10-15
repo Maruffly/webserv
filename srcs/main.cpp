@@ -4,7 +4,8 @@
 #include "network/epollManager.hpp"
 #include <csignal>
 
-namespace {
+namespace 
+{
     epollManager* g_activeLoop = NULL;
 
     void handleSignal(int)
@@ -15,21 +16,47 @@ namespace {
 
     void destroyServers(std::vector<Server*>& servers)
     {
-        for (size_t i = 0; i < servers.size(); ++i) {
+        for (size_t i = 0; i < servers.size(); ++i) 
             delete servers[i];
-        }
         servers.clear();
+    }
+
+    void selectConfiguration(int argc, char** argv, std::string& configPath)
+    {
+        std::string configLabel;
+        if (argc < 2) 
+        {
+            configPath = "./config/default.conf";
+            configLabel = "default configuration";
+        } 
+        else 
+        {
+            configPath = argv[1];
+            std::string filename = configPath;
+            size_t sep = filename.find_last_of("/\\");
+            if (sep != std::string::npos)
+                filename = filename.substr(sep + 1);
+            size_t dot = filename.rfind('.');
+            if (dot != std::string::npos)
+                filename = filename.substr(0, dot);
+            if (!filename.empty())
+                configLabel = filename + " configuration";
+            else
+                configLabel = "custom configuration";
+        }
+        LOG("Using " + configLabel + ": " + configPath);
     }
 }
 
 void groupHostPort(std::vector<ServerConfig> &serverConfigs, std::map<std::string, std::vector<ServerConfig> > &groups) {
     for (size_t i = 0; i < serverConfigs.size(); ++i) {
             const std::vector<std::string>& listens = serverConfigs[i].getListen();
-            if (!listens.empty()) {
+            if (!listens.empty()) 
+            {
                 for (size_t j = 0; j < listens.size(); ++j) {
-                    // listens[j] est normalisé sous forme host:port
+                    // listens[j] is normalized in the form host:port
                     std::string key = listens[j];
-                    // cloner la config et forcer host/port pour ce listen précis
+                    // Clone the configuration and force host/port for this specific listen
                     ServerConfig clone = serverConfigs[i];
                     size_t colon = key.find(':');
                     std::string host = key.substr(0, colon);
@@ -38,7 +65,9 @@ void groupHostPort(std::vector<ServerConfig> &serverConfigs, std::map<std::strin
                     clone.setPort(port);
                     groups[key].push_back(clone);
                 }
-            } else {
+            } 
+            else 
+            {
                 std::string key = serverConfigs[i].getHost() + std::string(":") + toString(serverConfigs[i].getPort());
                 groups[key].push_back(serverConfigs[i]);
             }
@@ -46,17 +75,20 @@ void groupHostPort(std::vector<ServerConfig> &serverConfigs, std::map<std::strin
 }
 
 int createGroupSocket(std::vector<Server*> &servers, std::map<std::string, std::vector<ServerConfig> > &groups,
-    std::vector< std::vector<ServerConfig> > &serverGroups, std::vector<int> &listenFds) {
+    std::vector< std::vector<ServerConfig> > &serverGroups, std::vector<int> &listenFds) 
+    {
         servers.reserve(groups.size());
         listenFds.reserve(groups.size());
         serverGroups.reserve(groups.size());
 
-        for (std::map<std::string, std::vector<ServerConfig> >::iterator it = groups.begin(); it != groups.end(); ++it) {
+        for (std::map<std::string, std::vector<ServerConfig> >::iterator it = groups.begin(); it != groups.end(); ++it) 
+        {
             const std::vector<ServerConfig>& group = it->second;
             if (group.empty())
                 continue;
-            try {
-                // Creer un Server seulement pour le premier (bind + listen)
+            try 
+            {
+                // Create a server only for the first one (bind + listen)
                 Server* srv = new Server(const_cast<ServerConfig&>(group[0]));
                 servers.push_back(srv);
                 listenFds.push_back(srv->getSocket());
@@ -82,16 +114,9 @@ int main(int argc, char** argv)
     {
         std::string configPath;
         ParseConfig parser;
-        bool usingDefault = false;
         std::map<std::string, std::vector<ServerConfig> > groups;
 
-        if (argc < 2) {
-            configPath = "./config/default.conf";
-            LOG("Using default configuration: " + configPath);
-            usingDefault = true;
-        } else {
-            configPath = argv[1];
-        }
+        selectConfiguration(argc, argv, configPath);
         std::vector<ServerConfig> serverConfigs = parser.parse(configPath);
 
         if (serverConfigs.empty())
@@ -100,15 +125,15 @@ int main(int argc, char** argv)
             return 1;
         }
         LOG("Number of server blocks detected: " + toString(serverConfigs.size()));
-        // Grouper les serveurs par couple host:port (supporte plusieurs listen par server)
+        // Group servers by host:port pair (supports multiple listens per server)
         groupHostPort(serverConfigs, groups);
 
-        // Creer un socket d'ecoute par groupe (serveur par defaut = premier defini)
+        // Create a listening socket per group (first defined = default server)
         std::vector< std::vector<ServerConfig> > serverGroups;
         std::vector<int> listenFds;
         if (createGroupSocket(servers, groups, serverGroups, listenFds))
             return 1;
-        // boucle epoll unique
+        // single epoll loop
         epollManager loop(listenFds, serverGroups);
         g_activeLoop = &loop;
         std::signal(SIGINT, handleSignal);
