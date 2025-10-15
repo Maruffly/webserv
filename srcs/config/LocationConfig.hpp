@@ -67,7 +67,6 @@ class LocationConfig {
 			void setUploadStore(const std::string& path);
 			void setUploadCreateDirs(const std::string& onoff);
 			const std::string& getUploadStore() const;
-			bool getUploadCreateDirs() const;
 
 			// Redirection API
 			void setReturn(int code, const std::string& url);

@@ -208,4 +208,3 @@ const std::string& LocationConfig::getReturnUrl() const { return _returnUrl; }
 void LocationConfig::setUploadStore(const std::string& path) { _uploadStore = path; }
 void LocationConfig::setUploadCreateDirs(const std::string& onoff) { _uploadCreateDirs = (onoff == "on"); }
 const std::string& LocationConfig::getUploadStore() const { return _uploadStore; }
-bool LocationConfig::getUploadCreateDirs() const { return _uploadCreateDirs; }

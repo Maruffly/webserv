@@ -802,8 +802,8 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
     std::string basePath = (location && !location->getUploadStore().empty()) ? location->getUploadStore() : resolveFilePath(uri, config);
     // Ensure upload dir exists if upload_store is set
     if (location && !location->getUploadStore().empty()) {
-        if (!ensureDirectoryExists(basePath, location->getUploadCreateDirs())) {
-            buildErrorResponse(response, 403, "Forbidden", &config);
+        if (!dirExists(basePath)) {
+            buildErrorResponse(response, 500, "Internal Server Error", &config);
             return response;
         }
     }

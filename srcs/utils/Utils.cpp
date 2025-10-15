@@ -187,60 +187,10 @@ std::string getFileExtension(const std::string& uri) {
     return "";
 }
 
-// Recursively creates folders (mkdir -p)
-int mkdirRecursive(const std::string& path, mode_t mode) {
-    if (path.empty()) return -1;
-
-    std::string current;
-    std::stringstream ss(path);
-    std::string segment;
-
-    if (path[0] == '/')
-        current = "/";
-
-    while (std::getline(ss, segment, '/')) {
-        if (segment.empty()) continue;
-        if (current != "/" && !current.empty())
-            current += "/";
-        current += segment;
-
-        if (!isDirectory(current)) {
-            if (mkdir(current.c_str(), mode) != 0) {
-                if (errno == EEXIST) continue;
-                return -1;
-            }
-        }
-    }
-    return 0;
-}
-
-
-static bool dirExists(const std::string& path) {
+bool dirExists(const std::string& path) {
     struct stat st;
     if (stat(path.c_str(), &st) != 0) return false;
     return S_ISDIR(st.st_mode);
-}
-
-
-bool ensureDirectoryExists(const std::string& path, bool create)
-{
-    if (path.empty()) return false;
-    if (dirExists(path)) return true;
-    if (!create) return false;
-    // recursive create
-    std::string cur;
-    for (size_t i = 0; i < path.size(); ++i) {
-        char c = path[i];
-        cur.push_back(c);
-        if (c == '/' || i == path.size() - 1) {
-            if (!cur.empty() && cur != "/" && !dirExists(cur)) 
-            {
-                if (mkdir(cur.c_str(), 0755) != 0 && errno != EEXIST) 
-                    return false;
-            }
-        }
-    }
-    return dirExists(path);
 }
 
 
