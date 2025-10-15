@@ -116,7 +116,7 @@ void ServerConfig::setListen(const std::string& listenStr) {
 
         std::string normalized = hostCandidate + ":" + toString(portCandidate);
         if (std::find(_listen.begin(), _listen.end(), normalized) != _listen.end())
-            throw ParseConfigException("Duplicate listen directive in server block: " + normalized, "listen");
+            throw ParseConfigException("Duplicate listen directive");
         _listen.push_back(normalized);
 
         // Première directive listen → définit host/port principaux

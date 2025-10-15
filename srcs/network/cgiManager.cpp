@@ -38,6 +38,8 @@
         envp.push_back(NULL);
         return envp;
 }
+
+
 void epollManager::execChild(std::string &scriptPath, const Request &request, 
     const ServerConfig &config, const LocationConfig* location, ClientConnection &conn){
         // chdir to script directory

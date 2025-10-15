@@ -54,7 +54,6 @@ class epollManager
         std::string buildAllowHeader(const LocationConfig* location) const;
         const LocationConfig* findLocationConfig(const std::string& uri, const ServerConfig& config) const;
         size_t getEffectiveClientMax(const LocationConfig* location, const ServerConfig& config) const;
-        void assignVirtualHost(int clientFd);
         bool validatePostLengthHeader(const Request& request, Response& response, const ServerConfig& config) const;
         bool validatePostBodySize(const Request& request, const LocationConfig* location, const ServerConfig& config, Response& response) const;
         bool handleConfiguredRedirect(const LocationConfig* location, Response& response, const ServerConfig& config) const;

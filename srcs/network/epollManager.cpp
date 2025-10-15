@@ -303,7 +303,7 @@ void epollManager::cleanupInactiveConnections() {
         }
         ++it;
     }
-    pruneExpiredSessions(now);
+    removeExpiredSessions(now);
 }
 
 
@@ -350,7 +350,8 @@ void epollManager::acceptPendingConnections(int listenFd)
 
 
 // Parses the headers currently stored for the connection and prepares body decoding.
-bool epollManager::parseClientHeaders(int clientFd) {
+bool epollManager::parseClientHeaders(int clientFd) 
+{
     ClientConnection &conn = _clientConnections[clientFd];
 
     HeaderSections sections;
@@ -363,67 +364,15 @@ bool epollManager::parseClientHeaders(int clientFd) {
     configureBodyStrategy(conn, sections.remainder);
 
     conn.headersParsed = true;
-    assignVirtualHost(clientFd);
     applyKeepAlivePolicy(conn);
     conn.state = (conn.bodyType == BODY_NONE) ? READY : READING_BODY;
     return true;
 }
 
-// Chooses the matching virtual host for the connection based on the Host header.
-void epollManager::assignVirtualHost(int clientFd) {
-    ClientConnection &conn = _clientConnections[clientFd];
-    std::map<int, std::vector<ServerConfig> >::iterator groupIt = _serverGroups.find(conn.listenFd);
-    if (groupIt == _serverGroups.end())
-        return;
-
-    const std::vector<ServerConfig>& group = groupIt->second;
-    if (group.empty())
-        return;
-
-    std::string hostHeader;
-    std::map<std::string, std::string>::const_iterator headerIt = conn.headers.find("host");
-    if (headerIt != conn.headers.end())
-        hostHeader = headerIt->second;
-
-    size_t colon = hostHeader.find(':');
-    std::string hostname = (colon == std::string::npos) ? hostHeader : hostHeader.substr(0, colon);
-    hostname = ParserUtils::trim(hostname);
-    std::string hostnameLower = hostname;
-    for (size_t i = 0; i < hostnameLower.size(); ++i)
-        hostnameLower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(hostnameLower[i])));
-
-    const ServerConfig* chosen = &group[0];
-    if (!hostnameLower.empty()) {
-        for (size_t i = 0; i < group.size(); ++i) {
-            const std::vector<std::string>& aliases = group[i].getServerNames();
-            for (size_t j = 0; j < aliases.size(); ++j) {
-                std::string aliasLower = aliases[j];
-                for (size_t k = 0; k < aliasLower.size(); ++k)
-                    aliasLower[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(aliasLower[k])));
-                if (aliasLower == hostnameLower) {
-                    chosen = &group[i];
-                    _serverForClientFd[conn.fd] = *chosen;
-                    return;
-                }
-            }
-            if (aliases.empty()) {
-                std::string hostLower = group[i].getHost();
-                for (size_t k = 0; k < hostLower.size(); ++k)
-                    hostLower[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(hostLower[k])));
-                if (!hostLower.empty() && hostLower == hostnameLower) {
-                    chosen = &group[i];
-                    _serverForClientFd[conn.fd] = *chosen;
-                    return;
-                }
-            }
-        }
-    }
-    _serverForClientFd[conn.fd] = *chosen;
-}
-
 
 // Transfers buffered data into the fixed-size request body until fully received.
-bool epollManager::consumeFixedBody(int clientFd) {
+bool epollManager::consumeFixedBody(int clientFd) 
+{
     ClientConnection &conn = _clientConnections[clientFd];
     if (conn.bodyReceived >= conn.contentLength) {
         conn.state = READY;
@@ -443,7 +392,8 @@ bool epollManager::consumeFixedBody(int clientFd) {
 
 
 // Consumes the chunked request body and marks completion when the last chunk arrives.
-bool epollManager::consumeChunkedBody(int clientFd) {
+bool epollManager::consumeChunkedBody(int clientFd) 
+{
     ClientConnection &c = _clientConnections[clientFd];
     if (!c.buffer.empty()) {
         c.chunkBuffer.append(c.buffer);
@@ -496,7 +446,8 @@ bool epollManager::consumeChunkedBody(int clientFd) {
 
 
 // Aggregates incoming data and reports when a full HTTP request is ready.
-bool epollManager::collectClientRequest(int clientFd) {
+bool epollManager::collectClientRequest(int clientFd) 
+{
     ClientConnection &conn = _clientConnections[clientFd];
     const ServerConfig& cfg = _serverForClientFd[clientFd];
     const LocationConfig* location = findLocationConfig(conn.uri.empty() ? "/" : conn.uri, cfg);
@@ -527,27 +478,31 @@ bool epollManager::collectClientRequest(int clientFd) {
 void epollManager::handleReadyRequest(int clientFd)
 {
     ClientConnection &conn = _clientConnections[clientFd];
-    try {
+    try 
+    {
         std::string raw = buildRawHttpRequest(conn);
         Request request(raw);
         if (request.isComplete()) {
             LOG("Request " + request.getMethod() + " " + request.getUri() + " fd=" + toString(clientFd));
             const ServerConfig& cfg = _serverForClientFd[clientFd];
             const LocationConfig* location = findLocationConfig(conn.uri, cfg);
-            ensureSessionFor(conn, request);
+            ensureConnectionSession(conn, request);
             bool wantsCgi = (location && location->isCgiRequest(conn.uri));
-            if (wantsCgi) {
-                if (!startCgiFor(clientFd, request, cfg, location)){
+            if (wantsCgi) 
+            {
+                if (!startCgiFor(clientFd, request, cfg, location))
                     queueErrorResponse(clientFd, 502, "Bad Gateway");
-                }
-            } else {
+            } 
+            else 
+            {
                 Response response = buildResponseForRequest(request, cfg);
-                if (conn.keepAlive) {
+                if (conn.keepAlive) 
+                {
                     response.setHeader("Connection", "keep-alive");
                     response.setHeader("Keep-Alive", "timeout=5, max=100");
-                } else {
+                } 
+                else 
                     response.setHeader("Connection", "close");
-                }
                 attachSessionCookie(response, conn);
                 std::string responseStr = response.getResponse();
                 std::string statusLine = responseStr.substr(0, responseStr.find("\r\n"));
@@ -555,7 +510,8 @@ void epollManager::handleReadyRequest(int clientFd)
                 conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; updateClientInterest(clientFd, true);
             }
             
-        } else {
+        } else 
+        {
             conn.keepAlive = false;
             queueErrorResponse(clientFd, 400, "Bad Request");
         }
@@ -585,7 +541,8 @@ const LocationConfig* epollManager::findLocationConfig(const std::string& uri, c
 // Builds the Allow header listing permitted methods for an endpoint.
 std::string epollManager::buildAllowHeader(const LocationConfig* location) const {
     std::string allow;
-    if (location) {
+    if (location) 
+    {
         const std::vector<std::string>& methods = location->getAllowedMethods();
         for (size_t i = 0; i < methods.size(); ++i) { if (i) allow += ", "; allow += methods[i]; }
     }
@@ -608,7 +565,8 @@ std::string epollManager::resolveFilePath(const std::string& uri, const ServerCo
     if (fpos != std::string::npos)
         pathOnly = pathOnly.substr(0, fpos);
     std::string rel;
-    if (locationHasRoot) {
+    if (locationHasRoot) 
+    {
         std::string mount = location->getPath();
         rel = pathOnly;
         if (!mount.empty() && rel.find(mount) == 0)
@@ -620,7 +578,8 @@ std::string epollManager::resolveFilePath(const std::string& uri, const ServerCo
         rel.erase(0,1);
     std::vector<std::string> parts = ParserUtils::split(rel, '/');
     std::vector<std::string> stack;
-    for (size_t i = 0; i < parts.size(); ++i) {
+    for (size_t i = 0; i < parts.size(); ++i) 
+    {
         const std::string& seg = parts[i];
         if (seg.empty() || seg == ".")
             continue;
@@ -780,7 +739,8 @@ Response epollManager::handleDelete(const Request& request, const LocationConfig
 }
 
 
-static std::string sanitizeFilename(const std::string& name) {
+static std::string sanitizeFilename(const std::string& name) 
+{
     std::string n; for (size_t i=0;i<name.size();++i) { char c = name[i]; if (c=='/'||c=='\\') continue; if (std::isalnum(static_cast<unsigned char>(c))||c=='.'||c=='-'||c=='_') n+=c; else n+='_'; } if (n.empty()) n = "upload.bin"; return n;
 }
 
@@ -831,7 +791,8 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
     if (maxBody > 0 && request.getBody().size() > maxBody) { buildErrorResponse(response, 413, "Request Entity Too Large", &config); return response; }
     std::string ct = request.getHeader("Content-Type"); std::string ctl = ct; for (size_t i=0;i<ctl.size();++i) ctl[i]=std::tolower(static_cast<unsigned char>(ctl[i]));
     bool created = false;
-    if (ctl.find("multipart/form-data") == 0) {
+    if (ctl.find("multipart/form-data") == 0) 
+    {
         size_t bpos = ctl.find("boundary=");
         if (bpos == std::string::npos) { buildErrorResponse(response, 400, "Bad Request", &config); return response; }
         size_t start = bpos + 9;
@@ -844,7 +805,8 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
         if (!parseMultipartAndSave(request.getBody(), boundary, basePath, uri, savedCount, anyCreated, lastPath)) { buildErrorResponse(response, 400, "Bad Request", &config); return response; }
         created = anyCreated; response.setStatus(created ? 201 : 200, created ? "Created" : "OK"); response.setHeader("Content-Type","text/html"); response.setHeader("Location", uri); response.setBody(createHtmlResponse(created?"201 Created":"200 OK", toString(savedCount) + " file(s) uploaded")); return response; }
     bool isDir = isDirectory(basePath) || (!uri.empty() && uri[uri.size()-1]=='/');
-    if (isDir) {
+    if (isDir) 
+    {
         buildErrorResponse(response, 400, "Bad Request", &config);
         return response;
     }
@@ -1092,7 +1054,6 @@ void epollManager::flushClientBuffer(int clientFd, uint32_t events)
 
     if (n > 0) 
     {
-        LOG("Sent " + toString(n) + " bytes to client " + toString(clientFd));
         conn.outOffset += static_cast<size_t>(n);
         if (conn.outOffset >= conn.outBuffer.size()) {
             LOG("Response sent to client " + toString(clientFd));
@@ -1148,10 +1109,6 @@ void epollManager::reapZombies()
         if (_activeCgiCount > 0)
             _activeCgiCount--;
 
-    // Debug log facultatif, utile en phase de test
-    LOG("Reaped CGI child PID=" + toString(pid));
-    // Si tu veux, tu peux parcourir _clientConnections
-    // pour marquer la connexion correspondante comme terminée :
     for (std::map<int, ClientConnection>::iterator it = _clientConnections.begin();
          it != _clientConnections.end(); ++it)
         {
@@ -1164,7 +1121,7 @@ void epollManager::reapZombies()
         }
         }
     }
-    // Si aucun enfant n’existe, ce n’est pas une erreur
+    // If no children exist, no error
     if (pid == -1 && errno != ECHILD)
     {
         ERROR_SYS("waitpid failed in reapZombies()");

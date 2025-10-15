@@ -12,7 +12,7 @@ class ClientConnection;
 class Response;
 
 std::string generateSessionId(int clientFd);
-void ensureSessionFor(ClientConnection& conn, Request& request);
+void ensureConnectionSession(ClientConnection& conn, const Request& request);
 void attachSessionCookie(Response& response, ClientConnection& conn);
 std::map<std::string, SessionData>& sessionStore();
-void pruneExpiredSessions(time_t now);
+void removeExpiredSessions(time_t now);

@@ -89,9 +89,9 @@ int createGroupSocket(std::vector<Server*> &servers, std::map<std::string, std::
             try 
             {
                 // Create a server only for the first one (bind + listen)
-                Server* srv = new Server(const_cast<ServerConfig&>(group[0]));
+                Server* srv = new Server(group[0]);
                 servers.push_back(srv);
-                listenFds.push_back(srv->getSocket());
+                listenFds.push_back(srv->getListeningSocket());
                 serverGroups.push_back(group);
             } catch (const std::exception& e) 
             {

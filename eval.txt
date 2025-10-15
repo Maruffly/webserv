@@ -1,14 +1,13 @@
 ===== MANDATORY PART =====
 
-    Ask explanations about the basics of an HTTP server.
 -> handleNewConnection listen and accept every client, by adding non-blocking socket to epoll
 -> request is read/parsed in handleClientRead.
 
-    Ask what function the group used for I/O Multiplexing
+    I/O Multiplexing
 -> loop relies on epoll_wait, called in epollManager::run
 -> avoid blocking on a single socket
 
-    Ask for an explanation of how does select() (or equivalent) work.
+    epoll working
 -> epoll_wait wakes up as soon as an fd is ready
 -> EPOLLIN event : handleClientRead is called, EPOLLOUT event : handleClientWrite is called
 -> After a complete read, the write is armed via armWriteEvent, which rewrites the fd with EPOLLIN|EPOLLOUT 

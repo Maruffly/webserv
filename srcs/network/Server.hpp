@@ -1,32 +1,29 @@
 #pragma once
 
 #include "../../include/Webserv.hpp"
-#include "../http/Request.hpp"
-#include "../http/Response.hpp"
 #include "../config/ServerConfig.hpp"
 
 class	Server
 {
 	private:
-		int				_serverSocket;
+		int				_listeningSocket;
 		int				_port;
 		std::string		_host;
-		ServerConfig	_config;
+		const ServerConfig	_config;
 
 		void		createSocket();
 		void		setSocketOptions();
 		void		bindSocket();
 		void		startListening();
+		void		closeSocketIfOpen();
+		void		throwSocketError(const std::string& message);
 
 
 	public:
-		Server(ServerConfig& config);
-		// Server(int port = DEFAULT_PORT, const std::string &host = DEFAULT_HOST);
+		Server(const ServerConfig& config);
 		~Server();
 
-		void		run();
-
-		int			getSocket() const;
+		int			getListeningSocket() const;
 		int			getPort() const;
-		std::string	getHost() const;
+		const std::string&	getHost() const;
 };

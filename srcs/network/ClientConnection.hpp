@@ -10,7 +10,6 @@ enum ChunkState { CHUNK_READ_SIZE, CHUNK_READ_DATA, CHUNK_READ_CRLF, CHUNK_COMPL
 
 class ClientConnection {
 public:
-    //int activeCgiCount;
     int fd;
     int listenFd;             // parent listening socket fd
     std::string buffer;       // raw incoming buffer
@@ -47,10 +46,6 @@ public:
     bool sessionShouldSetCookie;
     std::string sessionId;
 
-    // Virtual host selection
-    const ServerConfig* server;                          // chosen vhost for this connection
-    std::vector<const ServerConfig*> vhostGroup;         // servers sharing same ip:port
-
     // Remote peer info
     std::string remoteAddr;
     int         remotePort;
@@ -69,6 +64,5 @@ public:
           bodyType(BODY_NONE), contentLength(0), bodyReceived(0), chunkState(CHUNK_READ_SIZE),
             currentChunkSize(0), outOffset(0), hasResponse(false), keepAlive(false),
             sessionAssigned(false), sessionShouldSetCookie(false),
-            server(NULL),
             remotePort(0), cgiRunning(false), cgiPid(-1), cgiInFd(-1), cgiOutFd(-1), cgiInOffset(0), cgiStart(0) {}
 };

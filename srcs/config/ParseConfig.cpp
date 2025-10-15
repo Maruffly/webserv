@@ -9,8 +9,25 @@
 #include <sstream>
 
 
-namespace {
     std::set<std::string> g_usedEndpoints;
+
+    // Determines if the block marker is located on a commented line.
+bool isCommentedLine(const std::string& content, size_t patternPos)
+{
+	size_t lineStart = content.rfind('\n', patternPos);
+    if (lineStart == std::string::npos)
+        lineStart = 0;
+    else
+        lineStart += 1;
+
+    size_t lineEnd = content.find('\n', patternPos);
+    if (lineEnd == std::string::npos)
+        lineEnd = content.size();
+
+    size_t hashPos = content.find('#', lineStart);
+    if (hashPos == std::string::npos || hashPos >= lineEnd)
+        return false;
+    return hashPos < patternPos;
 }
 
 ParseConfig::ParseConfig() : _pos(0) {}
@@ -25,7 +42,7 @@ void ParseConfig::validateServerConfig(const ServerConfig& server) {
 	for (size_t i = 0; i < listens.size(); ++i) {
 		const std::string& listenValue = listens[i];
 		if (!g_usedEndpoints.insert(listenValue).second)
-			throw ParseConfigException("Duplicate listen directive for " + listenValue, "listen");
+			throw ParseConfigException("Duplicate listen directive");
 	}
 	// check server_name
 	if (server.getServerName().empty())
@@ -140,11 +157,16 @@ void parseCgiParam(Directive &directive, LocationConfig& location, std::vector<s
             location.addCgiParam(paramName, paramValue);
 }
 
+// Collects the full text for each block named blockName.
 std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
 	std::vector<std::string> blocks;
 	std::string searchPattern = blockName + " {";
 	size_t pos = 0;
 	while ((pos = _configContent.find(searchPattern, pos)) != std::string::npos) {
+		if (isCommentedLine(_configContent, pos)) {
+			pos += searchPattern.length();
+			continue;
+		}
 		size_t braceStart = _configContent.find('{', pos);
 		if (braceStart == std::string::npos) break;
 		

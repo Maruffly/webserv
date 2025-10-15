@@ -1,15 +1,9 @@
 #include "Server.hpp"
-#include "epollManager.hpp"
+#include <netdb.h>
 
-
-Server::Server(ServerConfig& config) : _serverSocket(-1), _config(config)
+// Initializes the listening socket according to the provided configuration.
+Server::Server(const ServerConfig& config) : _listeningSocket(-1), _port(config.getPort()), _host(config.getHost()), _config(config)
 {
-    _port = config.getPort();
-    _host = config.getHost();
-    
-    std::ostringstream portStr;
-    portStr << _port;
-    
     createSocket();
     setSocketOptions();
     bindSocket();
@@ -17,81 +11,119 @@ Server::Server(ServerConfig& config) : _serverSocket(-1), _config(config)
 }
 
 
-Server::~Server() 
+// Closes the listening socket when the server instance is destroyed.
+Server::~Server()
 {
-	if (_serverSocket != -1) {
-		close(_serverSocket);
-		LOG("Server socket closed");
-	}
+    if (_listeningSocket != -1) {
+        closeSocketIfOpen();
+        LOG("Server socket closed");
+    }
 }
 
 
-void Server::createSocket() 
+// Creates the listening socket file descriptor.
+void Server::createSocket()
 {
-	_serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-	if (_serverSocket == -1) { throw std::runtime_error("Failed to create socket"); }
+    _listeningSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (_listeningSocket == -1) {
+        throw std::runtime_error("Failed to create socket");
+    }
 }
 
 
-void Server::setSocketOptions() 
+// Applies common socket options before binding the socket.
+void Server::setSocketOptions()
 {
-	int opt = 1;
-	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-		close(_serverSocket);
-		throw std::runtime_error("Failed to set socket options (SO_REUSEADDR)");
-	}
+    int opt = 1;
+    if (setsockopt(_listeningSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        throwSocketError("Failed to set socket options (SO_REUSEADDR)");
+    }
 }
 
 
-void Server::bindSocket() 
+// Resolves the configured host and binds the listening socket.
+void Server::bindSocket()
 {
-	struct sockaddr_in serverAddress;
-	
-	// Address config
-	std::memset(&serverAddress, 0, sizeof(serverAddress));
-	serverAddress.sin_family = AF_INET;
-	serverAddress.sin_port = htons(_port);
-	
-	// IP address conversion
-	if (inet_pton(AF_INET, _host.c_str(), &serverAddress.sin_addr) <= 0) {
-		close(_serverSocket);
-		throw std::runtime_error("Invalid address or address not supported");
-	}
-	
-	// Liaison
-	if (bind(_serverSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
-		close(_serverSocket);
-		throw std::runtime_error("Bind failed");
-	}
+    struct addrinfo hints;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+
+    const char* hostPtr = _host.empty() ? NULL : _host.c_str();
+    std::string service = toString(_port);
+    struct addrinfo* results = NULL;
+
+    int ret = getaddrinfo(hostPtr, service.c_str(), &hints, &results);
+    if (ret != 0) {
+        throwSocketError(std::string("getaddrinfo failed: ") + gai_strerror(ret));
+    }
+    if (results == NULL) {
+        throwSocketError("getaddrinfo returned no address");
+    }
+
+    bool bound = false;
+    for (struct addrinfo* entry = results; entry != NULL && !bound; entry = entry->ai_next) {
+        if (bind(_listeningSocket, entry->ai_addr, entry->ai_addrlen) == 0) {
+            bound = true;
+        }
+    }
+
+    freeaddrinfo(results);
+
+    if (!bound) {
+        throwSocketError("Bind failed");
+    }
 }
 
 
-void Server::startListening() 
+// Places the listening socket in non-blocking mode and starts listening.
+void Server::startListening()
 {
-	// Sets listening socket to non blocking to I/O loop
-	int flags = fcntl(_serverSocket, F_GETFL, 0);
-	if (flags != -1) {
-		fcntl(_serverSocket, F_SETFL, flags | O_NONBLOCK);
-	}
+    int flags = fcntl(_listeningSocket, F_GETFL, 0);
+    if (flags != -1) {
+        fcntl(_listeningSocket, F_SETFL, flags | O_NONBLOCK);
+    }
 
-	if (listen(_serverSocket, BACKLOG) < 0) {
-		close(_serverSocket);
-		throw std::runtime_error("Listen failed");
-	}
+    if (listen(_listeningSocket, BACKLOG) < 0) {
+        throwSocketError("Listen failed");
+    }
 }
 
 
-// Getters
-int Server::getSocket() const { return _serverSocket; }
-int Server::getPort() const { return _port; }
-std::string Server::getHost() const { return _host; }
-
-
-
-void Server::run() 
+// Returns the listening socket file descriptor.
+int Server::getListeningSocket() const
 {
-    // Dans l'architecture actuelle, la boucle epoll unifiée est lancée depuis main
-    // pour gérer tous les sockets d'écoute simultanément. Cette méthode est donc
-    // conservée pour compatibilité mais ne lance plus de boucle propre.
-    INFO("Server::run inutilise: la boucle epoll est lancee depuis main");
+    return _listeningSocket;
+}
+
+// Returns the configured listening port.
+int Server::getPort() const
+{
+    return _port;
+}
+
+
+// Returns the configured listening host.
+const std::string& Server::getHost() const
+{
+    return _host;
+}
+
+
+// Closes the listening socket without logging if it is currently open.
+void Server::closeSocketIfOpen()
+{
+    if (_listeningSocket != -1) {
+        close(_listeningSocket);
+        _listeningSocket = -1;
+    }
+}
+
+
+// Ensures the socket is closed before throwing a runtime error.
+void Server::throwSocketError(const std::string& message)
+{
+    closeSocketIfOpen();
+    throw std::runtime_error(message);
 }
