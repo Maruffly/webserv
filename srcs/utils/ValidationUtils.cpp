@@ -1,4 +1,24 @@
+#include "../../include/Webserv.hpp"
 #include "ValidationUtils.hpp"
+
+
+// Vérifie que l'octet IPv4 est constitué uniquement de chiffres et reste dans [0, 255].
+bool isValidIPv4(const std::string& part) {
+	if (part.empty() || part.size() > 3)
+		return false;
+
+	int value = 0;
+	for (std::string::const_iterator it = part.begin(); it != part.end(); ++it) {
+		unsigned char c = static_cast<unsigned char>(*it);
+		if (!std::isdigit(c))
+			return false;
+		value = value * 10 + (c - '0');
+		if (value > 255)
+			return false;
+	}
+	return true;
+}
+
 
 bool ValidationUtils::isValidPort(int port){
 	if (port < 1 || port > 65535)
@@ -28,8 +48,22 @@ bool ValidationUtils::isValidName(const std::string &name){
 bool ValidationUtils::isValidIP(const std::string &ip){
 	 if (ip == "localhost")
 	 	return true;
-	struct sockaddr_in sa;
-	return inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr)) == 1;
+
+	size_t start = 0;
+	int segments = 0;
+	while (true) {
+		size_t dot = ip.find('.', start);
+		std::string part = ip.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
+		if (!isValidIPv4(part))
+			return false;
+		++segments;
+		if (dot == std::string::npos)
+			break;
+		start = dot + 1;
+		if (start > ip.size())
+			return false;
+	}
+	return segments == 4;
 }
 
 bool ValidationUtils::isValidMethod(const std::string &method) {

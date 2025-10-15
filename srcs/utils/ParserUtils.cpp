@@ -1,5 +1,5 @@
+#include "../../include/Webserv.hpp"
 #include "ParserUtils.hpp"
-#include <iostream>
 
 // Erase \t\n\r at the start or end of a str
 std::string ParserUtils::trim(const std::string& str) {

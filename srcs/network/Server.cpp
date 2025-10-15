@@ -1,5 +1,5 @@
+#include "../../include/Webserv.hpp"
 #include "Server.hpp"
-#include <netdb.h>
 
 // Initializes the listening socket according to the provided configuration.
 Server::Server(const ServerConfig& config) : _listeningSocket(-1), _port(config.getPort()), _host(config.getHost()), _config(config)

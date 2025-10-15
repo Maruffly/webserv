@@ -1,3 +1,4 @@
+#include "../../include/Webserv.hpp"
 #include "Request.hpp"
 
 #define PARSE_ERROR() do { _isComplete = false; return; } while (0)

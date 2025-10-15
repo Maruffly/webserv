@@ -1,17 +1,13 @@
-#include <set>
+#include "../../include/Webserv.hpp"
 #include "ParseConfig.hpp"
 #include "LocationConfig.hpp"
 #include "../utils/ParserUtils.hpp"
-#include <pwd.h>
-#include <unistd.h>
-#include <limits.h>
-#include <stdlib.h>
-#include <sstream>
+
+// Tracks listen directives already seen to prevent duplicate host:port bindings.
+std::set<std::string> g_usedEndpoints;
 
 
-    std::set<std::string> g_usedEndpoints;
-
-    // Determines if the block marker is located on a commented line.
+// Determines if the block marker is located on a commented line.
 bool isCommentedLine(const std::string& content, size_t patternPos)
 {
 	size_t lineStart = content.rfind('\n', patternPos);
@@ -30,9 +26,12 @@ bool isCommentedLine(const std::string& content, size_t patternPos)
     return hashPos < patternPos;
 }
 
+
 ParseConfig::ParseConfig() : _pos(0) {}
 
+
 ParseConfig::~ParseConfig(){}
+
 
 void ParseConfig::validateServerConfig(const ServerConfig& server) {
 	// check listen
@@ -63,6 +62,7 @@ void ParseConfig::validateServerConfig(const ServerConfig& server) {
 	}
 }
 
+
 bool parseBodySize(const std::string& sizeStr, size_t& result, std::string& errorDetail) {
 	errorDetail = "";
 	const size_t MAX_BODY_SIZE = 4UL * 1024UL * 1024UL * 1024UL;
@@ -89,7 +89,7 @@ bool parseBodySize(const std::string& sizeStr, size_t& result, std::string& erro
 		return false;
 	}
 	char* endptr = NULL;
-	unsigned long value = strtoul(numberStr.c_str(), &endptr, 10);
+    unsigned long value = std::strtoul(numberStr.c_str(), &endptr, 10);
 	if (*endptr != '\0') {
 		errorDetail = "\nInvalid number format";
 		return false;
@@ -106,6 +106,7 @@ bool parseBodySize(const std::string& sizeStr, size_t& result, std::string& erro
 	}
 	return true;
 }
+
 
 void parseCgiPass(std::string &value, LocationConfig& location){
     std::vector<std::string> cgitoken = ParserUtils::split(value, ' ');
@@ -137,6 +138,7 @@ void parseCgiPass(std::string &value, LocationConfig& location){
         throw ParseConfigException("Invalid cgi_pass format", "cgi_pass");
 }
 
+
 void parseCgiParam(Directive &directive, LocationConfig& location, std::vector<std::string> directives, int i)
 {
     std::vector<std::string> parts = ParserUtils::split(directive.value, ' ');
@@ -157,13 +159,17 @@ void parseCgiParam(Directive &directive, LocationConfig& location, std::vector<s
             location.addCgiParam(paramName, paramValue);
 }
 
+
 // Collects the full text for each block named blockName.
-std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
+std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) 
+{
 	std::vector<std::string> blocks;
 	std::string searchPattern = blockName + " {";
 	size_t pos = 0;
-	while ((pos = _configContent.find(searchPattern, pos)) != std::string::npos) {
-		if (isCommentedLine(_configContent, pos)) {
+	while ((pos = _configContent.find(searchPattern, pos)) != std::string::npos) 
+	{
+		if (isCommentedLine(_configContent, pos)) 
+		{
 			pos += searchPattern.length();
 			continue;
 		}
@@ -175,16 +181,16 @@ std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
 		size_t endPos = braceStart + 1;
 		
 		// parse until corresponding brace closing
-		while (endPos < _configContent.length() && openBraces > closeBraces) {
-			if (_configContent[endPos] == '{') {
+		while (endPos < _configContent.length() && openBraces > closeBraces) 
+		{
+			if (_configContent[endPos] == '{') 
 				openBraces++;
-			}
-			else if (_configContent[endPos] == '}') {
+			else if (_configContent[endPos] == '}') 
 				closeBraces++;
-			}
 			endPos++;
 		}
-		if (openBraces == closeBraces) {
+		if (openBraces == closeBraces) 
+		{
 			std::string fullBlock = _configContent.substr(pos, endPos - pos);
 			blocks.push_back(fullBlock);
 		}
@@ -193,8 +199,10 @@ std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName) {
 	return blocks;
 }
 
+
 // Expand /home/<user>/... to /home/$(USER)/...
-std::string ParseConfig::expandLocalUserPath(const std::string& path) const {
+std::string ParseConfig::expandLocalUserPath(const std::string& path) const 
+{
     const std::string marker = "/home/<user>/";
     std::string::size_type pos = path.find(marker);
     if (pos == std::string::npos)
@@ -202,11 +210,13 @@ std::string ParseConfig::expandLocalUserPath(const std::string& path) const {
 
     std::string username;
     const char* envUser = std::getenv("USER");
-    if (envUser && *envUser) {
+    if (envUser && *envUser) 
         username = envUser;
-    } else {
+	else 
+	{
         struct passwd* pw = getpwuid(getuid());
-        if (pw && pw->pw_name) username = pw->pw_name;
+        if (pw && pw->pw_name) 
+			username = pw->pw_name;
     }
     if (username.empty())
         return path;
@@ -216,9 +226,10 @@ std::string ParseConfig::expandLocalUserPath(const std::string& path) const {
     return expanded;
 }
 
+
 // If path starts with '/', return it; otherwise join with _configDir and canonicalize.
-// If canonicalization fails, return the joined path (still absolute) to be validated later.
-std::string ParseConfig::resolvePathRelativeToConfig(const std::string& path) const {
+std::string ParseConfig::resolvePathRelativeToConfig(const std::string& path) const 
+{
     if (!path.empty() && path[0] == '/')
         return path;
     // Join with config dir
@@ -235,7 +246,8 @@ std::string ParseConfig::resolvePathRelativeToConfig(const std::string& path) co
     return joined; // fallback
 }
 
-Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) {
+Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) 
+{
     Directive result;
     // Nettoyer les commentaires par ligne et concaténer les lignes utiles
     std::stringstream ss(rawLine);

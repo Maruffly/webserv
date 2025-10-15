@@ -1,5 +1,4 @@
-#include <sys/stat.h> 
-#include <unistd.h>
+#include "../../include/Webserv.hpp"
 #include "Utils.hpp"
 
 
@@ -42,11 +41,6 @@ std::string createHtmlResponse(const std::string& title, const std::string& cont
 }
 
 
-
-
-#include <sys/stat.h> 
-#include <unistd.h>
-#include "Utils.hpp"
 
 
 bool fileExists(const std::string& path) {
@@ -185,7 +179,7 @@ std::string getFileExtension(const std::string& uri) {
     return "";
 }
 
-// Crée récursivement les dossiers (mkdir -p)
+// Recursively creates folders (mkdir -p)
 int mkdirRecursive(const std::string& path, mode_t mode) {
     if (path.empty()) return -1;
 
@@ -219,6 +213,7 @@ static bool dirExists(const std::string& path) {
     return S_ISDIR(st.st_mode);
 }
 
+
 bool ensureDirectoryExists(const std::string& path, bool create)
 {
     if (path.empty()) return false;
@@ -230,30 +225,38 @@ bool ensureDirectoryExists(const std::string& path, bool create)
         char c = path[i];
         cur.push_back(c);
         if (c == '/' || i == path.size() - 1) {
-            if (!cur.empty() && cur != "/" && !dirExists(cur)) {
-                if (mkdir(cur.c_str(), 0755) != 0 && errno != EEXIST) return false;
+            if (!cur.empty() && cur != "/" && !dirExists(cur)) 
+            {
+                if (mkdir(cur.c_str(), 0755) != 0 && errno != EEXIST) 
+                    return false;
             }
         }
     }
     return dirExists(path);
 }
 
-std::string toLowerCase(const std::string &str) {
+
+std::string toLowerCase(const std::string &str) 
+{
     std::string result = str;
-    for (size_t i = 0; i < result.size(); ++i) {
+    for (size_t i = 0; i < result.size(); ++i) 
         result[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(result[i])));
-    }
+    
     return result;
 }
 
-std::string dirnameOf(const std::string& path) {
+
+std::string dirnameOf(const std::string& path) 
+{
     size_t p = path.find_last_of('/');
     if (p == std::string::npos) return std::string(".");
     if (p == 0) return std::string("/");
     return path.substr(0, p);
 }
 
-void safeClose(int pipefd[2]){
+
+void safeClose(int pipefd[2])
+{
     if (pipefd[0] != -1)
         close(pipefd[0]);
     if (pipefd[1] != -1)

@@ -2,8 +2,6 @@
 #include "../../include/Webserv.hpp"
 #include "ParseConfigException.hpp"
 #include "../utils/ValidationUtils.hpp"
-#include <algorithm>
-#include <cstdlib>
 
 ServerConfig::ServerConfig()
     : _index("index.html")

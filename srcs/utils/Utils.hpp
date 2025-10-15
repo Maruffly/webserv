@@ -1,14 +1,5 @@
 #pragma once
 
-#include <string>
-#include <map>
-#include <vector>
-#include <fstream>
-#include <sstream>
-#include <dirent.h>  // Ajouter pour opendir/readdir
-#include <sys/stat.h> // Ajouter pour stat
-#include <cctype>     // Ajouter pour std::tolower
-
 #include "../../include/Webserv.hpp"
 #include "../config/LocationConfig.hpp"
 

@@ -1,11 +1,6 @@
 #pragma once
 
-#include <string>
-#include <vector>
-#include <map>
-#include <algorithm>
-#include <cctype>
-#include <sstream>
+#include "../../include/Webserv.hpp"
 
 namespace ParserUtils {
 	std::string trim(const std::string& str); // trim \t\n\r

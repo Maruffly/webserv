@@ -2,7 +2,6 @@
 #include "network/Server.hpp"
 #include "config/ParseConfig.hpp"
 #include "network/epollManager.hpp"
-#include <csignal>
 
 namespace 
 {

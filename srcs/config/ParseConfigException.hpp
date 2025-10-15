@@ -1,7 +1,6 @@
 #pragma once
 
-#include <string>
-#include <stdexcept>
+#include "../../include/Webserv.hpp"
 
 class ParseConfigException : public std::runtime_error {
 private:

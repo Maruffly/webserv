@@ -1,3 +1,4 @@
+#include "../../include/Webserv.hpp"
 #include "epollManager.hpp"
 #include "Cookie.hpp"
 
@@ -75,14 +76,16 @@ void epollManager::execChild(std::string &scriptPath, const Request &request,
         else 
 			args.push_back(strdup(scriptPath.c_str()));
         args.push_back(NULL);
-        if (!interpreter.empty())
-			execve(interpreter.c_str(), args.data(), envp.data());
-        else
-			execve(scriptPath.c_str(), args.data(), envp.data());
-        // If execve fails
-        _exit(1);
+    if (!interpreter.empty())
+        execve(interpreter.c_str(), args.data(), envp.data());
+    else
+        execve(scriptPath.c_str(), args.data(), envp.data());
+    // If execve fails
+    std::exit(EXIT_FAILURE);
 }
-void epollManager::saveConnInfo(ClientConnection &conn, pid_t pid){
+
+void epollManager::saveConnInfo(ClientConnection &conn, pid_t pid)
+{
     conn.cgiRunning = true;
 	conn.cgiPid = pid;
 	conn.cgiInFd = pin[1];

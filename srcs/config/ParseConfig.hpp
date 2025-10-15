@@ -1,16 +1,10 @@
 #pragma once
 
+#include "../../include/Webserv.hpp"
 #include "ServerConfig.hpp"
 #include "LocationConfig.hpp"
 #include "../utils/ValidationUtils.hpp"
 #include "ParseConfigException.hpp"
-
-#include <string>
-#include <vector>
-#include <map>
-#include <fstream>
-#include <sstream>
-#include <algorithm>
 
 enum DirectiveName {
 	SERVER_NAME,

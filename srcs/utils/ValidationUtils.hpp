@@ -1,12 +1,6 @@
 #pragma once
 
-#pragma once
-#include <string>
-#include <vector>
-#include <cctype>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <algorithm>
+#include "../../include/Webserv.hpp"
 
 #define MAXLEN 1064
 

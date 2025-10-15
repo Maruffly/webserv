@@ -1,10 +1,7 @@
 #pragma once
 
+#include "../../include/Webserv.hpp"
 #include "../utils/ParserUtils.hpp"
-#include <string>
-#include <vector>
-#include <map>
-#include <iostream>
 
 #include "LocationConfig.hpp"
 class ServerConfig {

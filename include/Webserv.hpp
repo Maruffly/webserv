@@ -5,19 +5,30 @@
 #define RED "\033[31m"
 #define RESET "\033[0m"
 
-// system
-#include <map>
-#include <set>
-#include <iostream>
-#include <string>
+// C++ standard library
+#include <algorithm>
+#include <cerrno>
+#include <csignal>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
-#include <cerrno>
 #include <ctime>
-#include <stdexcept>
+#include <deque>
+#include <fstream>
+#include <iostream>
+#include <map>
 #include <sstream>
+#include <stdexcept>
+#include <string>
+#include <set>
 #include <vector>
-#include <algorithm>
+
+// C / POSIX headers
+#include <dirent.h>
+#include <limits.h>
+#include <netdb.h>
+#include <pwd.h>
+#include <unistd.h>
 
 // sockets - network programming
 #include <sys/epoll.h>
@@ -26,7 +37,6 @@
 #include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>

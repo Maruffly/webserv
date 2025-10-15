@@ -1,9 +1,6 @@
 #pragma once
 
-#include <string>
-#include <vector>
-#include <map>
-#include <iostream>
+#include "../../include/Webserv.hpp"
 
 class LocationConfig {
 	private:

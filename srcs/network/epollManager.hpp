@@ -6,8 +6,6 @@
 #include "../utils/Utils.hpp"
 #include "../config/ServerConfig.hpp"
 #include "ClientConnection.hpp"
-#include <set>
-#include <deque>
 
 class epollManager
 {

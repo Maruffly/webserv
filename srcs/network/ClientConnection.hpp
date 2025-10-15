@@ -1,6 +1,4 @@
 #include "../../include/Webserv.hpp"
-#include <map>
-#include <vector>
 
 class ServerConfig; // forward declaration
 

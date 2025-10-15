@@ -1,18 +1,28 @@
+#include "../../include/Webserv.hpp"
 #include "epollManager.hpp"
 #include "../http/Request.hpp"
 #include "../http/Response.hpp"
 #include "../config/ServerConfig.hpp"
 #include "../utils/Utils.hpp"
 #include "../utils/ParserUtils.hpp"
-#include <signal.h>
-#include <sys/wait.h>
-#include <fstream>
-#include <sstream>
-#include <algorithm>
-#include <cctype>
 #include "Cookie.hpp"
 
-namespace {
+
+// Converts a binary IPv4 address into dotted-decimal notation.
+std::string formatIpv4Address(const struct in_addr& addr) 
+{
+    unsigned long ip = ntohl(addr.s_addr);
+    std::string dotted = toString((ip >> 24) & 0xFF);
+    dotted += ".";
+    dotted += toString((ip >> 16) & 0xFF);
+    dotted += ".";
+    dotted += toString((ip >> 8) & 0xFF);
+    dotted += ".";
+    dotted += toString(ip & 0xFF);
+    return dotted;
+}
+
+
 // Splits the raw header buffer into the request line, header block and trailing body fragment.
 struct HeaderSections {
     std::string requestLine;
@@ -161,7 +171,7 @@ void applyKeepAlivePolicy(ClientConnection& conn)
         conn.keepAlive = explicitKeep;
 }
 
-}
+
 // Resets every per-request field so the connection can handle a new request.
 void resetClientState(ClientConnection& conn)
 {
@@ -335,9 +345,7 @@ void epollManager::acceptPendingConnections(int listenFd)
         newConn.listenFd = listenFd;
         newConn.lastActivity = time(NULL);
         newConn.isReading = false;
-        char ipbuf[INET_ADDRSTRLEN]; //to check
-        inet_ntop(AF_INET, &clientAddress.sin_addr, ipbuf, INET_ADDRSTRLEN);
-        newConn.remoteAddr = ipbuf;
+        newConn.remoteAddr = formatIpv4Address(clientAddress.sin_addr);
         newConn.remotePort = ntohs(clientAddress.sin_port); //to check
         _clientConnections[clientSocket] = newConn;
         _clientBuffers[clientSocket].clear();
@@ -510,12 +518,14 @@ void epollManager::handleReadyRequest(int clientFd)
                 conn.outBuffer = responseStr; conn.outOffset = 0; conn.hasResponse = true; updateClientInterest(clientFd, true);
             }
             
-        } else 
+        } 
+        else 
         {
             conn.keepAlive = false;
             queueErrorResponse(clientFd, 400, "Bad Request");
         }
-    } catch (...) {
+    } catch (...) 
+    {
         conn.keepAlive = false;
         queueErrorResponse(clientFd, 400, "Bad Request");
     }
@@ -527,10 +537,13 @@ const LocationConfig* epollManager::findLocationConfig(const std::string& uri, c
 {
     const std::vector<LocationConfig>& locations = config.getLocations();
     const LocationConfig* bestMatch = NULL;
-    for (size_t i = 0; i < locations.size(); ++i) {
+    for (size_t i = 0; i < locations.size(); ++i) 
+    {
         const LocationConfig& loc = locations[i];
-        if (uri.find(loc.getPath()) == 0) {
-            if (!bestMatch || loc.getPath().length() > bestMatch->getPath().length()) bestMatch = &loc;
+        if (uri.find(loc.getPath()) == 0) 
+        {
+            if (!bestMatch || loc.getPath().length() > bestMatch->getPath().length()) 
+                bestMatch = &loc;
         }
     }
     
@@ -539,32 +552,40 @@ const LocationConfig* epollManager::findLocationConfig(const std::string& uri, c
 
 
 // Builds the Allow header listing permitted methods for an endpoint.
-std::string epollManager::buildAllowHeader(const LocationConfig* location) const {
+std::string epollManager::buildAllowHeader(const LocationConfig* location) const 
+{
     std::string allow;
     if (location) 
     {
         const std::vector<std::string>& methods = location->getAllowedMethods();
         for (size_t i = 0; i < methods.size(); ++i) { if (i) allow += ", "; allow += methods[i]; }
     }
-    if (allow.empty()) allow = "GET, POST, DELETE";
+    if (allow.empty()) 
+        allow = "GET, POST, DELETE";
+    
     return allow;
 }
 
 
 // Resolves a request URI to a filesystem path respecting location roots.
-std::string epollManager::resolveFilePath(const std::string& uri, const ServerConfig& config) const {
+std::string epollManager::resolveFilePath(const std::string& uri, const ServerConfig& config) const 
+{
     const LocationConfig* location = findLocationConfig(uri, config);
     const bool hasLocation = (location != NULL);
     const bool locationHasRoot = (hasLocation && !location->getRoot().empty());
+
     std::string root = locationHasRoot ? location->getRoot() : config.getRoot();
     std::string pathOnly = uri;
     size_t qpos = pathOnly.find('?');
+
     if (qpos != std::string::npos)
         pathOnly = pathOnly.substr(0, qpos);
+
     size_t fpos = pathOnly.find('#');
     if (fpos != std::string::npos)
         pathOnly = pathOnly.substr(0, fpos);
     std::string rel;
+    
     if (locationHasRoot) 
     {
         std::string mount = location->getPath();
