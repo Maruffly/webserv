@@ -934,8 +934,9 @@ bool epollManager::tryServeResourceFromFilesystem(const std::string& uri, const 
 }
 
 // Adds the standard headers expected on every locally generated response and trims HEAD bodies.
-void epollManager::addStandardHeaders(Response& response, const std::string& method) const {
-    response.setHeader("Server", "webserv/1.0");
+void epollManager::addStandardHeaders(Response& response, const std::string& method) const 
+{
+    response.setHeader("Server", "webserv");
     response.setHeader("Date", getCurrentDate());
     if (method == "HEAD") {
         size_t len = response.getBodyLength();
@@ -946,7 +947,8 @@ void epollManager::addStandardHeaders(Response& response, const std::string& met
 
 
 // Routes the request to the correct handler and builds a complete HTTP response.
-Response epollManager::buildResponseForRequest(const Request& request, const ServerConfig& config) {
+Response epollManager::buildResponseForRequest(const Request& request, const ServerConfig& config) 
+{
     Response response;
     if (request.getVersion() != "HTTP/1.1" && request.getVersion() != "HTTP/1.0") {
         buildErrorResponse(response, 505, "HTTP Version Not Supported", &config);
