@@ -36,7 +36,12 @@ bool ValidationUtils::isValidPath(const std::string &path){
 		return false;
 	if (path.find('\0') != std::string::npos)
 		return false;
-	return path[0] == '/';
+	struct stat info;
+	if (stat(path.c_str(), &info) != 0)
+		return false;
+    if (!S_ISDIR(info.st_mode) && !S_ISREG(info.st_mode)) // check if accessible
+		return false;
+    return true;
 }
 
 bool ValidationUtils::isValidName(const std::string &name){

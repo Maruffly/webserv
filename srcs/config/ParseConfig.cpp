@@ -151,7 +151,7 @@ void parseCgiParam(Directive &directive, LocationConfig& location, std::vector<s
             for (size_t j = 2; j < parts.size(); ++j) {
                 paramValue += " " + parts[j];
             }
-            // Note: paramValue is usually a path (e.g., PYTHONPATH). It must be absolute.
+            // it must be absolute path
             if (!ValidationUtils::isValidPath(paramValue)) {
                 throw ParseConfigException("' - Invalid CGI param path, it must be an absolute path.",
                                             "cgi_param", directives[i]);
@@ -199,57 +199,9 @@ std::vector<std::string> ParseConfig::parseBlock(const std::string& blockName)
 	return blocks;
 }
 
-
-// Expand /home/<user>/... to /home/$(USER)/...
-std::string ParseConfig::expandLocalUserPath(const std::string& path) const 
-{
-    const std::string marker = "/home/<user>/";
-    std::string::size_type pos = path.find(marker);
-    if (pos == std::string::npos)
-        return path;
-
-    std::string username;
-    const char* envUser = std::getenv("USER");
-    if (envUser && *envUser) 
-        username = envUser;
-	else 
-	{
-        struct passwd* pw = getpwuid(getuid());
-        if (pw && pw->pw_name) 
-			username = pw->pw_name;
-    }
-    if (username.empty())
-        return path;
-
-    std::string expanded = path;
-    expanded.replace(pos, marker.size(), std::string("/home/") + username + "/");
-    return expanded;
-}
-
-
-// If path starts with '/', return it; otherwise join with _configDir and canonicalize.
-std::string ParseConfig::resolvePathRelativeToConfig(const std::string& path) const 
-{
-    if (!path.empty() && path[0] == '/')
-        return path;
-    // Join with config dir
-    std::string base = _configDir.empty() ? std::string(".") : _configDir;
-    std::string joined = base;
-    if (!joined.empty() && joined[joined.size() - 1] != '/')
-        joined += "/";
-    joined += path;
-    // Try to canonicalize
-    char buf[PATH_MAX];
-    char* rp = realpath(joined.c_str(), buf);
-    if (rp)
-        return std::string(buf);
-    return joined; // fallback
-}
-
 Directive ParseConfig::parseDirectiveLine(const std::string &rawLine) 
 {
     Directive result;
-    // Nettoyer les commentaires par ligne et concaténer les lignes utiles
     std::stringstream ss(rawLine);
     std::string accum;
     std::string one;
@@ -277,12 +229,10 @@ Directive ParseConfig::parseDirectiveLine(const std::string &rawLine)
 }
 
 void ParseConfig::parseLocationDirectives(const std::string& blockContent, LocationConfig& location){
-    // Nettoyer le contenu: retirer les commentaires par ligne et concaténer
     std::stringstream ss(blockContent);
     std::string cleaned;
     std::string line;
     while (std::getline(ss, line)) {
-        // couper à '#'
         size_t h = line.find('#');
         if (h != std::string::npos) line = line.substr(0, h);
         line = ParserUtils::trim(line);
@@ -290,7 +240,7 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
         if (!cleaned.empty()) cleaned += '\n';
         cleaned += line;
     }
-    // Découper en directives par ';'
+    // chunk directive by ;
     std::vector<std::string> directives = ParserUtils::split(cleaned, ';');
 
 	for (size_t i = 0; i < directives.size(); ++i)
@@ -300,39 +250,36 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
     	if (directive.name.empty())
 			continue;
 		try {
-				if (directive.name == "root") {
-	                // Expand <user> and allow relative paths resolved from config dir
-	                std::string value = expandLocalUserPath(ParserUtils::trim(directive.value));
-	                value = resolvePathRelativeToConfig(value);
-	                if (!ValidationUtils::isValidPath(value))
-	                    throw ParseConfigException("' - Invalid root path, it must be an absolut path.", "root", directives[i]);
-	                location.setRoot(value);
+			if (directive.name == "root") {
+	        if (!ValidationUtils::isValidPath(directive.value))
+	        	throw ParseConfigException("' - Invalid root path, it must be an absolut path.", "root", directives[i]);
+	        location.setRoot(directive.value);
 	            }
 			else if (directive.name == "index") {
 				location.setIndex(directive.value);
 			}
             else if (directive.name == "cgi_pass") {
-                // Support relative interpreter paths and <user> expansion
-                std::vector<std::string> parts = ParserUtils::split(ParserUtils::trim(directive.value), ' ');
+            	std::vector<std::string> parts = ParserUtils::split(ParserUtils::trim(directive.value), ' ');
                 if (parts.size() == 1) {
-                    std::string interp = expandLocalUserPath(parts[0]);
-                    interp = resolvePathRelativeToConfig(interp);
-                    directive.value = interp;
-                } else if (parts.size() >= 2) {
+                    std::string interp = parts[0];
+        			if (!ValidationUtils::isValidPath(interp))
+						throw ParseConfigException("Invalid cgi_pass path: only absolute paths are allowed", "cgi_pass");
+					directive.value = interp;
+                }
+				else if (parts.size() >= 2) {
                     std::string extension = parts[0];
                     std::string interpreter;
                     for (size_t j = 1; j < parts.size(); ++j) {
                         if (!interpreter.empty()) interpreter += " ";
                         interpreter += parts[j];
                     }
-                    interpreter = expandLocalUserPath(interpreter);
-                    interpreter = resolvePathRelativeToConfig(interpreter);
-                    directive.value = extension + std::string(" ") + interpreter;
+                    if (!ValidationUtils::isValidPath(interpreter))
+						throw ParseConfigException("Invalid cgi_pass interpreter path: only absolute paths are allowed", "cgi_pass");
+					directive.value = extension + std::string(" ") + interpreter;
                 }
                 parseCgiPass(directive.value, location);
             }
             else if (directive.name == "cgi_param") {
-                // Support relative param paths and <user> expansion
                 std::vector<std::string> parts = ParserUtils::split(ParserUtils::trim(directive.value), ' ');
                 if (parts.size() >= 2) {
                     std::string paramName = parts[0];
@@ -340,11 +287,12 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
                     for (size_t j = 2; j < parts.size(); ++j) {
                         paramValue += " " + parts[j];
                     }
-                    paramValue = expandLocalUserPath(paramValue);
-                    paramValue = resolvePathRelativeToConfig(paramValue);
-                    directive.value = paramName + std::string(" ") + paramValue;
-                }
+                    if (!ValidationUtils::isValidPath(paramValue)) {
+        				throw ParseConfigException(
+            		"Invalid path for directive '" + paramName + "': only absolute paths are allowed", paramName);
+                	}
                 parseCgiParam(directive, location, directives, i);
+				}
             }
 			else if (directive.name == "client_max_body_size") {
 				size_t bodySize;
@@ -380,8 +328,8 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 			}
 			else if (directive.name == "upload_store") {
 				std::string p = ParserUtils::trim(directive.value);
-				p = expandLocalUserPath(p);
-				p = resolvePathRelativeToConfig(p);
+				if (!ValidationUtils::isValidPath(p))
+					throw ParseConfigException("Invalid upload_store path: only absolute paths are allowed", "upload_store");
 				location.setUploadStore(p);
 			}
 			else if (directive.name == "upload_create_dirs") {
@@ -402,7 +350,7 @@ void ParseConfig::parseLocationDirectives(const std::string& blockContent, Locat
 			}
 			else
 				throw ParseConfigException("Unknown location directive: " + directive.name, directives[i]);
-	}
+		}
 	catch (const ParseConfigException& e){throw;}
 	}
 }
@@ -456,7 +404,7 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 	for (size_t i = 0; i < lines.size(); ++i) {
 		std::string line = ParserUtils::trim(lines[i]);
 
-		// ignorer les commentaires
+		// ignore comments
 		if (!line.empty() && line[0] == '#')
 			continue;
 		if (ParserUtils::startsWith(line, "server {")) {
@@ -467,7 +415,7 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 			continue;
 		if (ParserUtils::startsWith(line, "location")) {
 			int idx = (int)i;
-			std::string locationBlock = ParserUtils::checkBrace(line, lines, idx);  // avance idx à la fin du bloc
+			std::string locationBlock = ParserUtils::checkBrace(line, lines, idx);  // put idx to the end of the block
 			i = (size_t)idx;
 			parseLocationBlock(locationBlock, server);
     		continue;
@@ -479,14 +427,12 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 			directive.value = ParserUtils::getInBetween(line, "server_name", ";");
 			server.setServerName(ParserUtils::trim(directive.value));
 		}
-			else if (ParserUtils::startsWith(line, "root")){
-				directive.value = ParserUtils::getInBetween(line, "root", ";");
-				std::string value = expandLocalUserPath(ParserUtils::trim(directive.value));
-				value = resolvePathRelativeToConfig(value);
-				if (!ValidationUtils::isValidPath(value))
-					throw ParseConfigException("Location : Invalid root path", "root");
-				server.setRoot(value);
-			}
+		else if (ParserUtils::startsWith(line, "root")){
+			directive.value = ParserUtils::getInBetween(line, "root", ";");
+			if (!ValidationUtils::isValidPath(directive.value))
+				throw ParseConfigException("Location : Invalid root path", "root");
+			server.setRoot(directive.value);
+		}
 		else if (ParserUtils::startsWith(line,"index")){
 			directive.value = ParserUtils::getInBetween(line, "index", ";");
 			server.setIndex(ParserUtils::trim(directive.value));
@@ -510,10 +456,8 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 			directive.value = ParserUtils::getInBetween(line, "client_max_body_size", ";");
 			size_t bodySize;
 			std::string errorDetail;
-
-			if (!parseBodySize(ParserUtils::trim(directive.value), bodySize, errorDetail)) {
+			if (!parseBodySize(ParserUtils::trim(directive.value), bodySize, errorDetail))
 				throw ParseConfigException("' - Invalid client_max_body_size: " + errorDetail, "client_max_body_size");
-  			}
    			server.setClientMax(bodySize);
 		}
 		else if (ParserUtils::startsWith(line, "error_page_dir")) {
@@ -521,17 +465,17 @@ void ParseConfig::parseServerDirectives(const std::string& blockContent, ServerC
 			value = ParserUtils::trim(value);
 			if (value.empty())
 				throw ParseConfigException("error_page_dir requires a directory path", "error_page_dir");
-			std::string resolved = expandLocalUserPath(value);
-			resolved = resolvePathRelativeToConfig(resolved);
-			if (!ValidationUtils::isValidPath(resolved))
+			if (!ValidationUtils::isValidPath(value))
 				throw ParseConfigException("Invalid error_page_dir path", "error_page_dir");
-			server.setErrorPageDirectory(resolved);
+			server.setErrorPageDirectory(value);
 		}
 		else if (ParserUtils::startsWith(line, "error_page")) {
 			std::string value = ParserUtils::getInBetween(line, "error_page", ";");
 	   		std::vector<std::string> token = ParserUtils::split(value, ' ');
 			if (token.size() >= 2) {
 				std::string errorPath = token.back();
+				if (errorPath.empty() || errorPath[0] != '/')
+            		throw ParseConfigException("Invalid error_page path: must start with '/' (URI expected)", "error_page");
 				for (size_t j = 0; j < token.size() - 1; ++j) {
 					int errorCode = std::atoi(token[j].c_str());
 					if (errorCode > 0) {
@@ -582,18 +526,3 @@ std::vector<ServerConfig> ParseConfig::parse(const std::string& configPath){
 	return servers;
 }
 
-/* int main(){
-	try {
-		ParseConfig parser;
-		std::vector<ServerConfig> servers = parser.parse("linux.conf");
-		
-		for (size_t i = 0; i < servers.size(); ++i) {
-			std::cout << "\nServer #" << i + 1 << ":" << std::endl;
-			servers[i].printConfig();
-		}
-	} catch (const std::exception& e) {
-		std::cerr << "Error: " << e.what() << std::endl;
-		return 1;
-	}
-	return 0;
-} */
