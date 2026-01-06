@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Webserv</title>
+    <link rel="stylesheet" href="/assets/theme.css">
+</head>
+<body>
+    <main class="card card--wide">
+        <div class="card-content">
+            <div class="pill">✅ Server running</div>
+            <h1 class="hero-title"><span>🚀</span> Welcome to Webserv</h1>
+            <p class="subtitle">Your custom C++ HTTP server is alive and serving content with a sleek new interface.</p>
+
+            <div class="grid">
+                <section>
+                    <h2>Server snapshot</h2>
+                    <ul>
+                        <li>🖥️ <strong>Server:</strong> webserv/1.0</li>
+                        <li>🌐 <strong>Listen:</strong> 8080</li>
+                        <li>📁 <strong>Root:</strong> ./www/html</li>
+                        <li>⚙️ <strong>Config:</strong> linux.conf</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h2>Explore routes</h2>
+                    <div class="links">
+                        <a class="btn" href="/">Home</a>
+                        <a class="btn" href="/uploads/">Uploads</a>
+                        <a class="btn" href="/cgi-bin/">CGI Scripts</a>
+                        <a class="btn" href="/nonexistent">Test 404</a>
+                        <a class="btn" href="/delete-test.html">DELETE Demo</a>
+                        <a class="btn" href="/cookies.html">Cookie Tester</a>
+                    </div>
+                </section>
+
+                <section>
+                    <h2>Quick upload</h2>
+                    <form id="quickUpload" action="/uploads/" method="post" enctype="multipart/form-data">
+                        <input type="file" name="file" required>
+                        <button type="submit" class="btn">Upload file</button>
+                    </form>
+                    <small>The file will be saved under <code>/uploads/</code>.</small>
+                    <pre id="quickOut"></pre>
+                </section>
+
+                <section>
+                    <h2>Enabled features</h2>
+                    <ul>
+                        <li>✅ Static file serving</li>
+                        <li>✅ Location routing & redirects</li>
+                        <li>✅ Custom error pages</li>
+                        <li>✅ CGI execution (Python, PHP, ...)</li>
+                        <li>✅ File uploads with size limits</li>
+                        <li>✅ IP-restricted admin area</li>
+                    </ul>
+                </section>
+            </div>
+        </div>
+    </main>
+    <script>
+        const qf = document.getElementById('quickUpload');
+        const qo = document.getElementById('quickOut');
+        qf.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            qo.textContent = 'Uploading...';
+            try {
+                const r = await fetch('/uploads/', { method: 'POST', body: new FormData(qf) });
+                const text = await r.text();
+                qo.textContent = 'Status: ' + r.status + ' ' + (r.statusText||'') + '\n' + text;
+            } catch (err) {
+                qo.textContent = 'Error: ' + err;
+            }
+        });
+    </script>
+</body>
+</html>
