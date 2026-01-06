@@ -71,10 +71,10 @@ make
 ```
 ### 2. Launching the Server
 ```
-../webserv <path/to/your_config.conf>
+./webserv <path/to/your_config.conf>
 ```
 ### 3. Testing with Siege
-To verify the stability and non-blocking nature of the server:
+An exemple to verify the stability and non-blocking nature of the server:
 ```
 siege -b -t 1M http://localhost:8080
 ```
