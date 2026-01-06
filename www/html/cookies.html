@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Cookie Session Tester</title>
+    <link rel="stylesheet" href="/assets/theme.css">
+</head>
+<body>
+    <main class="card card--medium">
+        <div class="card-content">
+            <div class="pill">Session demo</div>
+            <h1 class="hero-title"><span>🍪</span> Cookie Session Tester</h1>
+            <p class="subtitle">Rechargez la page pour observer la persistance du cookie <code>session_id</code> posé par le serveur.</p>
+
+            <section>
+                <ul>
+                    <li>🔐 <strong>Cookie actuel:</strong> <span id="cookie-value" style="font-weight:700">(lecture…)</span></li>
+                    <li>🗂️ <strong>Champ:</strong> <code>session_id</code> (Secure flag non défini pour la démo)</li>
+                    <li>🔄 <strong>Origine:</strong> généré lors de la première requête HTTP complète</li>
+                </ul>
+            </section>
+
+            <div class="actions">
+                <button type="button" class="btn" onclick="refreshPage()">Recharger</button>
+                <button type="button" class="btn" onclick="clearCookie()">Effacer session_id</button>
+                <a class="btn" href="/">← Back to Home</a>
+            </div>
+        </div>
+    </main>
+    <script>
+        function readCookie(name) {
+            const match = document.cookie.split(';').map(part => part.trim()).find(part => part.startsWith(name + '='));
+            return match ? decodeURIComponent(match.split('=')[1]) : '(aucun)';
+        }
+        function update() {
+            document.getElementById('cookie-value').textContent = readCookie('session_id');
+        }
+        function refreshPage() {
+            window.location.reload();
+        }
+        function clearCookie() {
+            document.cookie = 'session_id=; Max-Age=0; path=/';
+            update();
+        }
+        update();
+    </script>
+</body>
+</html>

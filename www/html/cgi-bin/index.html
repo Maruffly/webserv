@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CGI Directory - Webserv</title>
+    <link rel="stylesheet" href="/assets/theme.css">
+</head>
+<body>
+    <main class="card card--medium">
+        <div class="card-content">
+            <div class="pill">Dynamic content</div>
+            <h1 class="hero-title"><span>🐍</span> CGI Scripts Directory</h1>
+            <p class="subtitle">Executables placed in this directory are run through the configured CGI handlers to produce dynamic responses.</p>
+
+            <div class="grid">
+                <section>
+                    <h2>Runtime configuration</h2>
+                    <ul>
+                        <li>🛠️ <strong>CGI handler:</strong> /usr/bin/python3</li>
+                        <li>🧭 <strong>Environment:</strong> PYTHONPATH=/var/www/cgi-bin</li>
+                        <li>📁 <strong>Filesystem root:</strong> ./www/html/cgi-bin/</li>
+                        <li>🎯 <strong>Goal:</strong> Demonstrate CGI integration</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h2>Available scripts</h2>
+                    <div class="links">
+                        <a href="/cgi-bin/test.py" class="btn">test.py</a>
+                    </div>
+                    <p class="muted">Each script responds using standard CGI headers and bodies. Ensure execute permissions are set.</p>
+                </section>
+            </div>
+
+            <div class="actions">
+                <a href="/" class="btn">← Back to Home</a>
+            </div>
+        </div>
+    </main>
+</body>
+</html>
