@@ -69,8 +69,10 @@ void storeHeaderLine(const std::string& line, ClientConnection& conn) {
 
     std::string name = line.substr(0, colon);
     std::string value = line.substr(colon + 1);
-    while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) value.erase(0, 1);
-    while (!name.empty() && (name[name.size() - 1] == ' ' || name[name.size() - 1] == '\t')) name.erase(name.size() - 1);
+    while (!value.empty() && (value[0] == ' ' || value[0] == '\t'))
+        value.erase(0, 1);
+    while (!name.empty() && (name[name.size() - 1] == ' ' || name[name.size() - 1] == '\t'))
+        name.erase(name.size() - 1);
     for (size_t i = 0; i < name.size(); ++i)
         name[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(name[i])));
     if (!name.empty())
@@ -301,7 +303,12 @@ void epollManager::cleanupInactiveConnections() {
                 _cgiInToClient.erase(c.cgiInFd);
                 c.cgiInFd = -1;
             }
-            if (c.cgiOutFd != -1) { epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiOutFd, NULL); close(c.cgiOutFd); _cgiOutToClient.erase(c.cgiOutFd); c.cgiOutFd = -1; }
+            if (c.cgiOutFd != -1) {
+                epoll_ctl(_epollFd, EPOLL_CTL_DEL, c.cgiOutFd, NULL);
+                close(c.cgiOutFd);
+                _cgiOutToClient.erase(c.cgiOutFd);
+                c.cgiOutFd = -1;
+            }
             c.cgiRunning = false;
             c.keepAlive = false;
             queueErrorResponse(c.fd, 504, "Gateway Timeout");
@@ -740,7 +747,8 @@ size_t epollManager::getEffectiveClientMax(const LocationConfig* location, const
 bool epollManager::isCgiRequest(const std::string& uri, const ServerConfig& config) const 
 {
     const LocationConfig* location = findLocationConfig(uri, config);
-    if (!location) return false;
+    if (!location)
+        return false;
     return !location->getCgiPass().empty();
 }
 
@@ -750,19 +758,47 @@ Response epollManager::handleDelete(const Request& request, const LocationConfig
 {
     Response response;
     const std::string uri = request.getUri();
-    if (location && !location->getCgiPass().empty()) { buildErrorResponse(response, 403, "Forbidden", &config); return response; }
+    if (location && !location->getCgiPass().empty()) {
+        buildErrorResponse(response, 403, "Forbidden", &config);
+        return response;
+    }
     std::string path = resolveFilePath(uri, config);
-    if (path.empty()) { buildErrorResponse(response, 403, "Forbidden", &config); return response; }
-    if (!fileExists(path)) { buildErrorResponse(response, 404, "Not Found", &config); return response; }
-    if (isDirectory(path)) { buildErrorResponse(response, 403, "Forbidden", &config); return response; }
-    if (unlink(path.c_str()) == 0) { response.setStatus(204, "No Content"); response.setBody(""); return response; }
-    buildErrorResponse(response, 500, "Internal Server Error", &config); return response;
+    if (path.empty()) {
+        buildErrorResponse(response, 403, "Forbidden", &config);
+        return response;
+    }
+    if (!fileExists(path)) {
+        buildErrorResponse(response, 404, "Not Found", &config);
+        return response;
+    }
+    if (isDirectory(path)) {
+        buildErrorResponse(response, 403, "Forbidden", &config);
+        return response;
+    }
+    if (unlink(path.c_str()) == 0) {
+        response.setStatus(204, "No Content");
+        response.setBody("");
+        return response;
+    }
+    buildErrorResponse(response, 500, "Internal Server Error", &config);
+    return response;
 }
 
 
 static std::string sanitizeFilename(const std::string& name) 
 {
-    std::string n; for (size_t i=0;i<name.size();++i) { char c = name[i]; if (c=='/'||c=='\\') continue; if (std::isalnum(static_cast<unsigned char>(c))||c=='.'||c=='-'||c=='_') n+=c; else n+='_'; } if (n.empty()) n = "upload.bin"; return n;
+    std::string n;
+    for (size_t i=0;i<name.size();++i) {
+        char c = name[i];
+        if (c=='/'||c=='\\')
+            continue;
+        if (std::isalnum(static_cast<unsigned char>(c))||c=='.'||c=='-'||c=='_')
+            n+=c;
+        else
+            n+='_';
+    }
+    if (n.empty()) n = "upload.bin";
+        return n;
 }
 
 
@@ -771,22 +807,61 @@ bool epollManager::parseMultipartAndSave(const std::string& body, const std::str
                                          const std::string& basePath, const std::string& uri,
                                          size_t& savedCount, bool& anyCreated, std::string& lastSavedPath)
 {
-    savedCount = 0; anyCreated = false; lastSavedPath.clear();
-    if (boundary.empty()) return false;
-    std::string sep = std::string("--") + boundary; size_t pos = 0; size_t start = body.find(sep, pos); if (start == std::string::npos) return false; pos = start + sep.size();
-    while (true) {
-        if (pos + 2 > body.size()) break;
-        if (body.substr(pos, 2) == "--") break;
-        if (body.substr(pos, 2) != "\r\n") return false;
+    savedCount = 0;
+    anyCreated = false;
+    lastSavedPath.clear();
+    if (boundary.empty())
+        return false;
+    std::string sep = std::string("--") + boundary; size_t pos = 0;
+    size_t start = body.find(sep, pos);
+    if (start == std::string::npos)
+        return false;
+    pos = start + sep.size();
+    while (true)
+    {
+        if (pos + 2 > body.size())
+            break;
+        if (body.substr(pos, 2) == "--")
+            break;
+        if (body.substr(pos, 2) != "\r\n")
+            return false;
         pos += 2;
-        size_t hdrEnd = body.find("\r\n\r\n", pos); if (hdrEnd == std::string::npos) return false; std::string headers = body.substr(pos, hdrEnd - pos); pos = hdrEnd + 4;
+        size_t hdrEnd = body.find("\r\n\r\n", pos);
+        if (hdrEnd == std::string::npos)
+            return false;
+        std::string headers = body.substr(pos, hdrEnd - pos);
+        pos = hdrEnd + 4;
         std::string filename;
-        size_t cd = headers.find("Content-Disposition:"); if (cd != std::string::npos) {
-            size_t fn = headers.find("filename="); if (fn != std::string::npos) { size_t startq = headers.find('"', fn); size_t endq = (startq==std::string::npos)?std::string::npos:headers.find('"', startq+1); if (startq!=std::string::npos && endq!=std::string::npos) filename = headers.substr(startq+1, endq-startq-1); }
+        size_t cd = headers.find("Content-Disposition:");
+        if (cd != std::string::npos) {
+            size_t fn = headers.find("filename=");
+            if (fn != std::string::npos) {
+                size_t startq = headers.find('"', fn);
+                size_t endq = (startq==std::string::npos)?std::string::npos:headers.find('"', startq+1);
+                if (startq!=std::string::npos && endq!=std::string::npos)
+                    filename = headers.substr(startq+1, endq-startq-1);
+                }
         }
-        size_t next = body.find(sep, pos); if (next == std::string::npos) return false; std::string content = body.substr(pos, next - pos - 2); pos = next + sep.size();
-        std::string dest = basePath; bool isDir = isDirectory(basePath) || (!uri.empty() && uri[uri.size()-1]=='/'); if (isDir) { std::string clean = sanitizeFilename(filename); if (!dest.empty() && dest[dest.size()-1] != '/') dest += "/"; dest += clean; }
-        bool existed = fileExists(dest); std::ofstream ofs(dest.c_str(), std::ios::binary); if (!ofs.is_open()) return false; ofs.write(content.c_str(), content.size()); ofs.close(); savedCount += 1; anyCreated = anyCreated || (!existed); lastSavedPath = dest;
+        size_t next = body.find(sep, pos);
+        if (next == std::string::npos)
+            return false;
+        std::string content = body.substr(pos, next - pos - 2);
+        pos = next + sep.size();
+        std::string dest = basePath;
+        bool isDir = isDirectory(basePath) || (!uri.empty() && uri[uri.size()-1]=='/');
+        if (isDir) {
+            std::string clean = sanitizeFilename(filename);
+            if (!dest.empty() && dest[dest.size()-1] != '/')
+                dest += "/";
+            dest += clean; 
+        }
+        bool existed = fileExists(dest); std::ofstream ofs(dest.c_str(), std::ios::binary);
+        if (!ofs.is_open())
+            return false;
+        ofs.write(content.c_str(), content.size());
+        ofs.close();
+        savedCount += 1;
+        anyCreated = anyCreated || (!existed); lastSavedPath = dest;
     }
     return savedCount > 0;
 }
@@ -795,7 +870,8 @@ bool epollManager::parseMultipartAndSave(const std::string& body, const std::str
 // Handles non-CGI POST requests such as form submissions and uploads.
 Response epollManager::handlePost(const Request& request, const LocationConfig* location, const ServerConfig& config) 
 {
-    Response response; const std::string uri = request.getUri();
+    Response response;
+    const std::string uri = request.getUri();
     // CGI requests are handled asynchronously in handleReadyRequest via launchCgi
     // This function now only covers non-CGI POST handlers (uploads, file writes, etc.)
     // Determine upload base path: upload_store if set, else resolve from URI
@@ -807,32 +883,72 @@ Response epollManager::handlePost(const Request& request, const LocationConfig* 
             return response;
         }
     }
-    if (basePath.empty()) { buildErrorResponse(response, 403, "Forbidden", &config); return response; }
+    if (basePath.empty()) {
+        buildErrorResponse(response, 403, "Forbidden", &config);
+        return response;
+    }
     size_t maxBody = getEffectiveClientMax(location, config);
-    if (maxBody > 0 && request.getBody().size() > maxBody) { buildErrorResponse(response, 413, "Request Entity Too Large", &config); return response; }
-    std::string ct = request.getHeader("Content-Type"); std::string ctl = ct; for (size_t i=0;i<ctl.size();++i) ctl[i]=std::tolower(static_cast<unsigned char>(ctl[i]));
+    if (maxBody > 0 && request.getBody().size() > maxBody) {
+        buildErrorResponse(response, 413, "Request Entity Too Large", &config);
+        return response;
+    }
+    std::string ct = request.getHeader("Content-Type");
+    std::string ctl = ct;
+    for (size_t i=0;i<ctl.size();++i)
+        ctl[i]=std::tolower(static_cast<unsigned char>(ctl[i]));
     bool created = false;
     if (ctl.find("multipart/form-data") == 0) 
     {
         size_t bpos = ctl.find("boundary=");
-        if (bpos == std::string::npos) { buildErrorResponse(response, 400, "Bad Request", &config); return response; }
+        if (bpos == std::string::npos) {
+            buildErrorResponse(response, 400, "Bad Request", &config);
+            return response;
+        }
         size_t start = bpos + 9;
         std::string boundary = ct.substr(start);
-        size_t scPos = boundary.find(';'); if (scPos != std::string::npos) boundary = boundary.substr(0, scPos);
-        while (!boundary.empty() && (boundary[0]==' ' || boundary[0]=='\t')) boundary.erase(0,1);
-        while (!boundary.empty() && (boundary[boundary.size()-1]==' ' || boundary[boundary.size()-1]=='\t')) boundary.erase(boundary.size()-1);
-        if (!boundary.empty() && boundary[0]=='"') { size_t endq = boundary.find('"', 1); boundary = (endq==std::string::npos)?boundary.substr(1):boundary.substr(1, endq-1); }
-        size_t savedCount = 0; bool anyCreated = false; std::string lastPath;
-        if (!parseMultipartAndSave(request.getBody(), boundary, basePath, uri, savedCount, anyCreated, lastPath)) { buildErrorResponse(response, 400, "Bad Request", &config); return response; }
-        created = anyCreated; response.setStatus(created ? 201 : 200, created ? "Created" : "OK"); response.setHeader("Content-Type","text/html"); response.setHeader("Location", uri); response.setBody(createHtmlResponse(created?"201 Created":"200 OK", toString(savedCount) + " file(s) uploaded")); return response; }
+        size_t scPos = boundary.find(';');
+        if (scPos != std::string::npos)
+            boundary = boundary.substr(0, scPos);
+        while (!boundary.empty() && (boundary[0]==' ' || boundary[0]=='\t'))
+            boundary.erase(0,1);
+        while (!boundary.empty() && (boundary[boundary.size()-1]==' ' || boundary[boundary.size()-1]=='\t'))
+            boundary.erase(boundary.size()-1);
+        if (!boundary.empty() && boundary[0]=='"') {
+            size_t endq = boundary.find('"', 1);
+            boundary = (endq==std::string::npos)?boundary.substr(1):boundary.substr(1, endq-1);
+        }
+        size_t savedCount = 0;
+        bool anyCreated = false;
+        std::string lastPath;
+        if (!parseMultipartAndSave(request.getBody(), boundary, basePath, uri, savedCount, anyCreated, lastPath)) {
+            buildErrorResponse(response, 400, "Bad Request", &config);
+            return response;
+        }
+        created = anyCreated; response.setStatus(created ? 201 : 200, created ? "Created" : "OK");
+        response.setHeader("Content-Type","text/html");
+        response.setHeader("Location", uri);
+        response.setBody(createHtmlResponse(created?"201 Created":"200 OK", toString(savedCount) + " file(s) uploaded"));
+        return response;
+    }
     bool isDir = isDirectory(basePath) || (!uri.empty() && uri[uri.size()-1]=='/');
     if (isDir) 
     {
         buildErrorResponse(response, 400, "Bad Request", &config);
         return response;
     }
-    bool existed = fileExists(basePath); std::ofstream ofs(basePath.c_str(), std::ios::binary); if (!ofs.is_open()) { buildErrorResponse(response, 403, "Forbidden", &config); return response; }
-    const std::string& data = request.getBody(); ofs.write(data.c_str(), data.size()); ofs.close(); response.setStatus(existed?200:201, existed?"OK":"Created"); response.setHeader("Content-Type","text/html"); response.setBody(createHtmlResponse(existed?"200 OK":"201 Created", existed?"File overwritten":"File created")); return response;
+    bool existed = fileExists(basePath);
+    std::ofstream ofs(basePath.c_str(), std::ios::binary);
+    if (!ofs.is_open()) {
+        buildErrorResponse(response, 403, "Forbidden", &config);
+        return response;
+    }
+    const std::string& data = request.getBody();
+    ofs.write(data.c_str(), data.size());
+    ofs.close();
+    response.setStatus(existed?200:201, existed?"OK":"Created");
+    response.setHeader("Content-Type","text/html");
+    response.setBody(createHtmlResponse(existed?"200 OK":"201 Created", existed?"File overwritten":"File created"));
+    return response;
 }
 
 

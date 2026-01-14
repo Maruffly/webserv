@@ -269,7 +269,8 @@ static void parseCgiOutputToResponse(const std::string& cgiOutput, Response& res
         int statusCode = 200;
         std::string statusText = "OK";
         for (size_t i = 0; i < headerLines.size(); ++i) {
-            if (!headerLines[i].empty() && headerLines[i][headerLines[i].size()-1] == '\r') headerLines[i].erase(headerLines[i].size()-1);
+            if (!headerLines[i].empty() && headerLines[i][headerLines[i].size()-1] == '\r')
+                headerLines[i].erase(headerLines[i].size()-1);
             size_t colonPos = headerLines[i].find(':');
             if (colonPos != std::string::npos) {
                 std::string name = ParserUtils::trim(headerLines[i].substr(0, colonPos));
